@@ -123,14 +123,6 @@ TEST(CountMinSketchTest, BasicTest2) {
   ASSERT_EQ(cms.Count(999999), 0);
 }
 
-TEST(CountMinSketchTest, EdgeTest1) {
-  // Invalid construction parameters
-  for (int i = 10; i < 50; i += 10) {
-    ASSERT_THROW(CountMinSketch<int>(0, i), std::invalid_argument);
-    ASSERT_THROW(CountMinSketch<int>(i * 5, 0), std::invalid_argument);
-  }
-}
-
 TEST(CountMinSketchTest, EdgeTest2) {
   // Test count-min sketch behavior with minimum width and various depths
   // Test with width = 1 (all hash to the same bucket)

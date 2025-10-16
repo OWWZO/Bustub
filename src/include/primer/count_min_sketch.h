@@ -10,17 +10,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#pragma once
-
 #include <cstdint>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <utility>
 #include <vector>
 
 #include "common/util/hash_util.h"
 
 namespace bustub {
-
 template <typename KeyType>
 class CountMinSketch {
  public:
@@ -83,8 +82,12 @@ class CountMinSketch {
   uint32_t width_;  // Number of buckets for each hash function
   uint32_t depth_;  // Number of independent hash functions
   /** Pre-computed hash functions for each row */
+  struct Element {
+    uint32_t count_ = 0;
+    mutable std::mutex mutex_;
+  };
   std::vector<std::function<size_t(const KeyType &)>> hash_functions_;
-
+  std::vector<std::vector<std::unique_ptr<Element>>> matrix_;
   /** @fall2025 PLEASE DO NOT MODIFY THE FOLLOWING */
   constexpr static size_t SEED_BASE = 15445;
 
