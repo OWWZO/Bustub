@@ -25,7 +25,7 @@
 #include <unordered_map>
 
 // 引入BusTub项目的公共配置和宏定义（定义了页ID、帧ID等基础类型）
-#include "buffer/buffer_pool_manager.h"
+
 #include "common/config.h"
 #include "common/macros.h"
 
@@ -78,12 +78,15 @@ struct FrameStatus {
  *      同时记着之前被借走又还回的书（幽灵帧），如果读者再借，能快速找出来。
  */
 class ArcReplacer {
+ friend BufferPoolManager;
+
  public:
   /**
    * 构造函数：初始化ARC替换器，指定最大可管理的帧数量
    * @param num_frames 缓存能容纳的最大帧数量（类似图书馆的"总书架容量"，最多能放多少本书）
    */
-  explicit ArcReplacer(size_t num_frames, BufferPoolManager *buffer_pool_manager);
+  explicit ArcReplacer(size_t num_frames);
+  //TODO(wwz) 只能1个参数
 
   /**
    * 禁用拷贝和移动构造：避免多个ArcReplacer实例共享同一套缓存数据（类似图书馆不会有两个完全相同的"书架管理系统"，
@@ -107,7 +110,6 @@ class ArcReplacer {
    */
   auto Evict() -> std::optional<frame_id_t>;
 
-  auto Cut(frame_id_t frame_id) -> bool;
   /**淘汰
    * 记录帧访问：当某个帧被访问时，更新其在ARC中的状态（比如从MRU移到MFU，或从幽灵帧变为活跃帧）
    * @param frame_id 被访问的帧ID（类似"被读者拿起的书的书架位置"）
@@ -117,6 +119,7 @@ class ArcReplacer {
    *      如果多次拿，可能移入热门区（MFU）；如果是之前被下架的书（幽灵帧），则重新放回活跃区。
    */
   void RecordAccess(frame_id_t frame_id, page_id_t page_id, AccessType access_type = AccessType::Unknown);
+
 
   /**
    * 设置帧的可淘汰状态：标记某个帧是否允许被淘汰
@@ -145,6 +148,8 @@ class ArcReplacer {
    */
   auto Size() -> size_t;
 
+
+
  private:
   // TODO(student): implement me! You can replace or remove these member variables as you like.
 
@@ -154,14 +159,12 @@ class ArcReplacer {
    * - mfu_：最常使用的活跃帧列表（类似"图书馆热门区的书架，按'被借次数'排序，最前面是借的人最多的"）
    * 列表特性：支持快速在头部/尾部插入/删除（对应"最新加入"和"最早淘汰"）
    */
-  BufferPoolManager *buffer_pool_manager_;
 
   std::list<frame_id_t> mru_;
   std::list<frame_id_t> mfu_;
 
   std::list<page_id_t> mru_ghost_;
   std::list<page_id_t> mfu_ghost_;
-
 
   std::unordered_map<frame_id_t, std::shared_ptr<FrameStatus>> alive_map_;
 
@@ -180,7 +183,7 @@ class ArcReplacer {
    *      剩下的活跃帧放MFU区），根据幽灵帧的访问情况自动更新（类似"图书馆根据读者对新书和热门书的借阅比例，
    *      动态调整新书区和热门区的书架容量"）
    */
-  [[maybe_unused]] size_t mru_target_size_{0};
+  [[maybe_unused]] size_t mru_target_size_{0};  // TODO(wwz) 大小做限制
 
   /**
    * ARC替换器的总容量（对应构造函数的num_frames，即缓存能容纳的最大帧数量）

@@ -26,7 +26,10 @@ namespace bustub {
 // 前向声明：避免循环引用，告诉编译器这些类后续会定义
 class BufferPoolManager;
 class FrameHeader;
+class ArcReplacer;
 
+
+enum class AccessType;
 /**
  * @brief 一个RAII对象，提供对页数据的线程安全读访问。
  *

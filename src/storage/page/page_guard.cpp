@@ -33,7 +33,7 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
   // 3.
   // 告知replacer：该frame正在被使用，不能被替换（replacer_->Pin(frame->page_id_)）——相当于告诉整理员"这本书有人在读，别移走"
   // 类比场景：拿到许可证后，给书架格子上"只读标签"，并跟整理员说"这本书我正在看，别收走"
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  is_valid_=true;
 }
 
 // 相当于"图书阅读许可证"的转让：比如你临时有事，把许可证转让给同学A，转让后你手里的证失效，只有A的证有效。
@@ -56,7 +56,12 @@ auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & 
   if (this == &that) {
     return *this;
   }
-  *this = std::move(that);
+  this->bpm_latch_=std::move(that.bpm_latch_);
+  this->frame_=std::move(that.frame_);
+  this->disk_scheduler_=std::move(that.disk_scheduler_);
+  this->replacer_=std::move(that.replacer_);
+  this->page_id_=that.page_id_; //TODO(wwz) 这个资源转移之后 被转移的对象要怎么处理？？
+  this->is_valid_=that.is_valid_;
   return *this;
 }
 
@@ -104,18 +109,20 @@ auto ReadPageGuard::IsDirty() const -> bool {
 
 void ReadPageGuard::Flush() {
   if (IsDirty()) {
-    DiskRequest request(true, frame_->data_.data(), page_id_);
-    // 2. 创建具名的optional对象（左值）
-    std::optional<DiskRequest> opt_request(std::move(request));
+    std::promise<bool> promise = disk_scheduler_->CreatePromise();
+    auto task = std::make_optional(DiskRequest(false, frame_->data_.data(), page_id_, std::move(promise)));
     // 3. 传递左值引用给Write函数
-    disk_scheduler_->Write(opt_request);
+    disk_scheduler_->Write(task);
     frame_->is_dirty_ = false;
   }
 }
 
-void ReadPageGuard::Drop() {
-    is_valid_=true;
- }
+void ReadPageGuard::Drop() { 
+  if(frame_&&frame_->pin_count_.load()!=0){
+    frame_->pin_count_.fetch_sub(1);
+    }
+  is_valid_ = true; 
+}
 
 /** @brief The destructor for `ReadPageGuard`. This destructor simply calls `Drop()`. */
 
@@ -164,19 +171,14 @@ ReadPageGuard::~ReadPageGuard() { Drop(); }
 WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                                std::shared_ptr<ArcReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch,
                                std::shared_ptr<DiskScheduler> disk_scheduler)
-    : page_id_(page_id),  // 【赋值逻辑】：把"目标书籍编号"（page_id）存入Guard的成员变量，记录要修改的页标识
-      frame_(std::move(frame)),  // 【赋值逻辑】：把"存放目标页的内存格子"（frame）的所有权转移给Guard，
-                                 // 确保Guard是当前操作该内存格子的主要管理者（避免其他地方随意修改）
-      replacer_(std::move(replacer)),  // 【赋值逻辑】：把"内存页替换规则管理器"（replacer）的指针交给Guard，
-                                       // 让Guard能在需要时执行替换操作
-      bpm_latch_(std::move(bpm_latch)),  // 【赋值逻辑】：把"内存池全局锁"（bpm_latch）的指针交给Guard，
-                                         // 让Guard能控制线程安全的访问
-      disk_scheduler_(std::move(disk_scheduler)) {  // 【赋值逻辑】：把"磁盘IO调度员"（disk_scheduler）的指针交给Guard，
-                                                    // 让Guard能调度内存页与磁盘的数据交互
-  UNIMPLEMENTED(
-      "TODO(P1): Add implementation.");  // 【占位逻辑】：当前是未实现状态，提示开发者需要补充具体功能代码，
-                                         // 比如在这里添加"锁定latch防止其他线程访问"、"标记页面为待修改状态"等初始化操作
-}
+    : page_id_(page_id),
+      frame_(std::move(frame)),
+      replacer_(std::move(replacer)),
+      bpm_latch_(std::move(bpm_latch)),
+      disk_scheduler_(std::move(disk_scheduler)) {
+        
+
+      }
 /**
  * @brief The move constructor for `WritePageGuard`.
  *        （翻译：`WritePageGuard`类的移动构造函数。移动构造函数的核心作用是“转移资源所有权”，而非“复制资源”，就像把别人手里的东西“拿过来自己用”，而不是再做一个一模一样的复制品）
@@ -199,9 +201,7 @@ WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> f
  */
 // 移动构造函数：参数是“右值引用”（&&that），表示`that`是一个“即将被销毁的临时对象”或“明确允许转移资源的对象”
 // noexcept：表示这个构造函数不会抛出异常，这是移动构造函数的常见优化（因为转移资源通常是简单的指针赋值，不会出错）
-WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept {
-  *this = std::move(that);
-}
+WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept { *this = std::move(that); }
 
 /**
  * @brief WritePageGuard（写页面守卫）类的移动赋值运算符
@@ -230,8 +230,14 @@ auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard
   if (this == &that) {
     return *this;
   }
-  *this = std::move(that);
-  return *this; }
+  this->bpm_latch_=std::move(that.bpm_latch_);
+  this->frame_=std::move(that.frame_);
+  this->disk_scheduler_=std::move(that.disk_scheduler_);
+  this->replacer_=std::move(that.replacer_);
+  this->page_id_=that.page_id_; //TODO(wwz) 这个资源转移之后 被转移的对象要怎么处理？？
+  this->is_valid_=that.is_valid_;
+  return *this;
+}
 
 /**
  * @brief 获取当前守卫保护的页面的ID
@@ -311,11 +317,11 @@ auto WritePageGuard::IsDirty() const -> bool {
  */
 void WritePageGuard::Flush() {
   if (IsDirty()) {
-    DiskRequest request(true, frame_->data_.data(), page_id_);
-    // 2. 创建具名的optional对象（左值）
-    std::optional<DiskRequest> opt_request(std::move(request));
+    std::promise<bool> promise = disk_scheduler_->CreatePromise();
+    auto task = std::make_optional(DiskRequest(false, frame_->data_.data(), page_id_, std::move(promise)));
+
     // 3. 传递左值引用给Write函数
-    disk_scheduler_->Write(opt_request);
+    disk_scheduler_->Write(task);
     frame_->is_dirty_ = false;
   }
 }
@@ -329,14 +335,14 @@ void WritePageGuard::Flush() {
  * 再把房屋钥匙还给中介（将frame归还给缓冲池管理器，类似"钥匙回收"），
  * 最后作废自己的合同（标记守卫为无效，避免后续操作）。
  * 顺序很重要：如果先还钥匙再报备改动，会导致无法访问房子数据；如果不还钥匙，中介会以为房子还在租（资源泄漏）。
-*/
-void WritePageGuard::Drop() {
-  is_valid_ =true;
-
+ */
+void WritePageGuard::Drop() { 
+  if(frame_&&frame_->pin_count_.load()!=0){
+  frame_->pin_count_.fetch_sub(1);
+  }
+  is_valid_ = true; 
 }
 
-WritePageGuard::~WritePageGuard() {
-  Drop();
-}
+WritePageGuard::~WritePageGuard() { Drop(); }
 
 }  // namespace bustub

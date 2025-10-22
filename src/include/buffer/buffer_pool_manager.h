@@ -92,6 +92,7 @@ class FrameHeader {
   /** @brief 该帧头对应的帧ID（唯一标识，类似图书馆书架的编号） */
   const frame_id_t frame_id_;
 
+  page_id_t page_id_;
   /** @brief 该帧的读写锁（控制并发访问）
    * 类比现实：书架前的"正在整理"牌子——多个读者可同时看（共享锁），
    * 但管理员修改时不允许读者看（排他锁）
@@ -133,8 +134,6 @@ class FrameHeader {
  * 注意：实现前需通读项目文档，且必须先完成ArcReplacer（缓存淘汰算法）和DiskManager（磁盘IO）的实现
  */
 class BufferPoolManager {
-
-  friend ArcReplacer;
  public:
   /**
    * @brief 构造函数：初始化缓冲池管理器
@@ -264,6 +263,8 @@ class BufferPoolManager {
 
   auto NewPageById(page_id_t page_id) -> bool;
 
+  auto Cut(frame_id_t frame_id) -> bool;
+
  private:
   /** @brief 缓冲池的总帧数（内存中能同时存储的页数量，类似图书馆的总书架数） */
   const size_t num_frames_;
@@ -299,7 +300,7 @@ class BufferPoolManager {
   /** @brief 淘汰器（用ARC算法选择要淘汰的帧，类似图书馆的"冷门书筛选器"）
    * 当没有空闲帧时，通过淘汰器找到"最不常用"的未被使用帧（pin_count=0），淘汰它来腾出空间
    */
-  std::shared_ptr<ArcReplacer> replacer_;
+  std::shared_ptr<ArcReplacer> replacer_;  // TODO(wwz) 试试根据gtest的测试样例 来写代码
 
   /** @brief A pointer to the disk scheduler. Shared with the page guards for flushing. */
   std::shared_ptr<DiskScheduler> disk_scheduler_;

@@ -53,8 +53,9 @@ struct DiskRequest {
 
   /** Callback used to signal to the request issuer when the request has been completed. */
   std::promise<bool> callback_;
-
-  DiskRequest(bool is_write, char *data, page_id_t page_id) : is_write_(is_write), data_(data), page_id_(page_id) {}
+  
+  DiskRequest(bool is_write, char *data, page_id_t page_id, std::promise<bool> &&promise)
+      : is_write_(is_write), data_(data), page_id_(page_id), callback_(std::move(promise)) {}
 };
 
 /**
@@ -105,7 +106,7 @@ class DiskScheduler {
    * @return std::promise<bool>
    *  （创建Promise对象的函数：默认返回一个std::promise<bool>，允许用户自定义Promise实现；类比：提供一个"创建签收单"的模板，默认是标准签收单，用户也可以自己设计签收单格式，只要能完成通知功能即可）
    */
-  auto CreatePromise() -> DiskSchedulerPromise { return {}; };
+  auto CreatePromise() -> DiskSchedulerPromise { return std::promise<bool>{}; };
 
   /**
    * @brief Deallocates a page on disk.
