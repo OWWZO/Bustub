@@ -145,7 +145,7 @@ class ReadPageGuard {
    * 由于缓冲池不知道ReadPageGuard何时析构，守卫自身需要持有缓冲池锁指针，以便在更新帧的淘汰状态时加锁保护。
    */
   std::shared_ptr<std::mutex> bpm_latch_;
-
+  std::shared_lock<std::shared_mutex> lock_;
   /**
    * @brief 指向缓冲池磁盘调度器的智能指针。
    * 类比：指向图书馆"存档室管理员"的联系方式——需要刷写数据（抄录存档）时，通过这个指针联系管理员。
@@ -282,6 +282,7 @@ class WritePageGuard {
    */
   std::shared_ptr<std::mutex> bpm_latch_;
 
+  std::unique_lock<std::shared_mutex> lock_;
   /**
    * @brief 指向缓冲池磁盘调度器的智能指针（存档室管理员联系方式）。
    * 刷写脏页时调度磁盘操作，将修改写入存档。

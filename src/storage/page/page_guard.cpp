@@ -1,4 +1,3 @@
-
 #include "storage/page/page_guard.h"
 #include <memory>
 #include <optional>
@@ -8,7 +7,6 @@
 #include "storage/disk/disk_scheduler.h"
 
 namespace bustub {
-
 // 现实逻辑类比：
 // 相当于图书馆的"图书阅读许可证"创建过程：
 // 1. page_id 是你要借的书的唯一编号（比如《数据库原理》的编号是10086）
@@ -22,18 +20,15 @@ namespace bustub {
 ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                              std::shared_ptr<ArcReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch,
                              std::shared_ptr<DiskScheduler> disk_scheduler)
-    : page_id_(page_id),
-      frame_(std::move(frame)),
-      replacer_(std::move(replacer)),
-      bpm_latch_(std::move(bpm_latch)),
-      disk_scheduler_(std::move(disk_scheduler)) {
-  // 此处需补充的核心逻辑（RAII构造的关键步骤）：
-  // 1. 标记当前Guard为有效（is_valid_ = true）——相当于许可证生效
-  // 2. 对frame加读锁（frame->rwlatch_.RLock()）——相当于打开书架格子的"只读锁"，别人能读但不能改
-  // 3.
-  // 告知replacer：该frame正在被使用，不能被替换（replacer_->Pin(frame->page_id_)）——相当于告诉整理员"这本书有人在读，别移走"
-  // 类比场景：拿到许可证后，给书架格子上"只读标签"，并跟整理员说"这本书我正在看，别收走"
-  is_valid_=true;
+  : page_id_(page_id),
+    frame_(std::move(frame)),
+    replacer_(std::move(replacer)),
+    bpm_latch_(std::move(bpm_latch)),
+    disk_scheduler_(std::move(disk_scheduler)) {
+  lock_ = std::shared_lock<std::shared_mutex>(frame_->rwlatch_);
+  replacer_->RecordAccess(frame_->frame_id_, page_id);
+
+  is_valid_ = true;
 }
 
 // 相当于"图书阅读许可证"的转让：比如你临时有事，把许可证转让给同学A，转让后你手里的证失效，只有A的证有效。
@@ -51,17 +46,17 @@ ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept { *this = std::move(
 //  2. 再执行和移动构造一样的逻辑：把你的许可证资源转移给A，标记你的无效、A的有效
 //  类比场景：A不能同时持有两本有效图书的阅读许可证，所以要先还掉手里的，才能接过你的《数据库原理》许可证
 auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & {
-  // 此处需补充的核心逻辑：
-  // 1. 防止自赋值（if (this == &that) return *this;）
   if (this == &that) {
     return *this;
   }
-  this->bpm_latch_=std::move(that.bpm_latch_);
-  this->frame_=std::move(that.frame_);
-  this->disk_scheduler_=std::move(that.disk_scheduler_);
-  this->replacer_=std::move(that.replacer_);
-  this->page_id_=that.page_id_; //TODO(wwz) 这个资源转移之后 被转移的对象要怎么处理？？
-  this->is_valid_=that.is_valid_;
+  this->Drop();
+  this->bpm_latch_ = std::move(that.bpm_latch_);
+  this->frame_ = std::move(that.frame_);
+  this->disk_scheduler_ = std::move(that.disk_scheduler_);
+  this->replacer_ = std::move(that.replacer_);
+  this->lock_ = std::move(that.lock_); // 关键修复：移动锁对象
+  this->page_id_ = that.page_id_; // TODO(wwz) 这个资源转移之后 被转移的对象要怎么处理？？
+  this->is_valid_ = that.is_valid_;
   return *this;
 }
 
@@ -75,8 +70,8 @@ auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & 
 // 输出：书的编号（page_id_）
  */
 auto ReadPageGuard::GetPageId() const -> page_id_t {
-  BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard");  // 断言：许可证必须有效，否则报错
-  return page_id_;                                                 // 返回当前保护的页面ID（书的编号）
+  BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard"); // 断言：许可证必须有效，否则报错
+  return page_id_; // 返回当前保护的页面ID（书的编号）
 }
 
 /**
@@ -90,8 +85,8 @@ auto ReadPageGuard::GetPageId() const -> page_id_t {
 // 类比场景：有《数据库原理》的阅读许可证，才能翻开书看内容，但不能用笔在书上写字
  */
 auto ReadPageGuard::GetData() const -> const char * {
-  BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard");  // 断言：许可证必须有效
-  return frame_->GetData();  // 从frame中获取只读数据指针（书的内容）
+  BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard"); // 断言：许可证必须有效
+  return frame_->GetData(); // 从frame中获取只读数据指针（书的内容）
 }
 
 /**
@@ -103,8 +98,8 @@ auto ReadPageGuard::GetData() const -> const char * {
 // 类比场景：你借《数据库原理》时，检查书里是否有别人没清理的笔记（dirty=true），还是干净的（dirty=false）
  */
 auto ReadPageGuard::IsDirty() const -> bool {
-  BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard");  // 断言：许可证必须有效
-  return frame_->is_dirty_;  // 返回页面是否为"脏页"（被修改未刷盘）
+  BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard"); // 断言：许可证必须有效
+  return frame_->is_dirty_; // 返回页面是否为"脏页"（被修改未刷盘）
 }
 
 void ReadPageGuard::Flush() {
@@ -117,11 +112,19 @@ void ReadPageGuard::Flush() {
   }
 }
 
-void ReadPageGuard::Drop() { 
-  if(frame_&&frame_->pin_count_.load()!=0){
+void ReadPageGuard::Drop() {
+  // 安全释放锁：检查是否持有锁，如果持有则释放
+  if (lock_.owns_lock()) {
+    lock_.unlock();
+  }
+
+  if (frame_ && frame_->pin_count_.load() != 0) {
     frame_->pin_count_.fetch_sub(1);
-    }
-  is_valid_ = true; 
+  }
+  if (frame_) {
+    replacer_->SetEvictable(frame_->frame_id_, true);
+  }
+  is_valid_ = false;
 }
 
 /** @brief The destructor for `ReadPageGuard`. This destructor simply calls `Drop()`. */
@@ -132,53 +135,6 @@ void ReadPageGuard::Drop() {
 // 类比场景：你借的书到期了，图书馆系统自动把书收回，注销你的许可证，无需你手动还书
 ReadPageGuard::~ReadPageGuard() { Drop(); }
 
-/**
- * @brief The only constructor for an RAII `WritePageGuard` that creates a valid guard.
- *
- * 【现实逻辑类比】：相当于"图书馆管理员准备让读者修改某本书"的初始化流程。
- *  - 这里的`WritePageGuard`就像"修改书籍的专属授权卡"，只有拿到这张卡，才能合法修改书籍；
- *  - 图书馆管理员（对应`buffer pool manager`）是唯一能发放这张卡的人，确保修改行为受管控；
- *  - 构造这个Guard的过程，就是管理员收集"修改书籍所需的全部工具和信息"，并封装到授权卡里的过程。
- *
- * Note that only the buffer pool manager is allowed to call this constructor.
- * 【现实逻辑类比】：就像只有图书馆管理员能发放"书籍修改授权卡"，普通读者（其他模块）不能自己造卡，
- *  避免未经允许的修改操作，保证书籍（内存页）的安全。
- *
- * TODO(P1): Add implementation.
- *
- * @param page_id The page ID of the page we want to write to.
- *  【现实逻辑类比】：要修改的书籍的唯一编号（比如图书馆里每本书的ISBN号），通过这个编号能精准定位到目标书籍。
- *  作用：告诉Guard"我们要修改的是哪一个具体的内存页"，是定位目标的核心标识。
- *
- * @param frame A shared pointer to the frame that holds the page we want to protect.
- *  【现实逻辑类比】：存放目标书籍的"书架格子"（frame是内存池中的固定存储单元，相当于书架格子），
- *  这个格子里当前正放着我们要修改的那本书（内存页）。
- *  作用：Guard通过这个指针直接访问到"要修改的内存页所在的内存单元"，是操作的载体。
- *
- * @param replacer A shared pointer to the buffer pool manager's replacer.
- *  【现实逻辑类比】：图书馆的"书籍替换规则管理器"（比如当书架满了，要按规则把不常用的书放回仓库）。
- *  作用：当当前要修改的内存页需要被替换出内存时，Guard会通过这个replacer执行替换逻辑，确保内存池的高效利用。
- *
- * @param bpm_latch A shared pointer to the buffer pool manager's latch.
- *  【现实逻辑类比】：图书馆的"书架区域门锁"，用来控制对书架区域的访问（防止多人同时修改同一本书造成混乱）。
- *  作用：Guard持有这个锁的指针，在进行写操作时会锁定这个 latch，保证对内存页的写操作是线程安全的，避免数据竞争。
- *
- * @param disk_scheduler A shared pointer to the buffer pool manager's disk scheduler.
- *  【现实逻辑类比】：图书馆的"仓库存取调度员"（负责把书从仓库运到书架，或从书架运回仓库）。
- *  作用：当需要将修改后的内存页写回磁盘（相当于把修改后的书放回仓库），或从磁盘读取数据到内存时，
- *  Guard会通过这个disk_scheduler调度磁盘IO操作，是内存与磁盘数据交互的"调度中介"。
- */
-WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
-                               std::shared_ptr<ArcReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch,
-                               std::shared_ptr<DiskScheduler> disk_scheduler)
-    : page_id_(page_id),
-      frame_(std::move(frame)),
-      replacer_(std::move(replacer)),
-      bpm_latch_(std::move(bpm_latch)),
-      disk_scheduler_(std::move(disk_scheduler)) {
-        
-
-      }
 /**
  * @brief The move constructor for `WritePageGuard`.
  *        （翻译：`WritePageGuard`类的移动构造函数。移动构造函数的核心作用是“转移资源所有权”，而非“复制资源”，就像把别人手里的东西“拿过来自己用”，而不是再做一个一模一样的复制品）
@@ -202,7 +158,6 @@ WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> f
 // 移动构造函数：参数是“右值引用”（&&that），表示`that`是一个“即将被销毁的临时对象”或“明确允许转移资源的对象”
 // noexcept：表示这个构造函数不会抛出异常，这是移动构造函数的常见优化（因为转移资源通常是简单的指针赋值，不会出错）
 WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept { *this = std::move(that); }
-
 /**
  * @brief WritePageGuard（写页面守卫）类的移动赋值运算符
  *
@@ -230,12 +185,14 @@ auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard
   if (this == &that) {
     return *this;
   }
-  this->bpm_latch_=std::move(that.bpm_latch_);
-  this->frame_=std::move(that.frame_);
-  this->disk_scheduler_=std::move(that.disk_scheduler_);
-  this->replacer_=std::move(that.replacer_);
-  this->page_id_=that.page_id_; //TODO(wwz) 这个资源转移之后 被转移的对象要怎么处理？？
-  this->is_valid_=that.is_valid_;
+  this->Drop();
+  this->bpm_latch_ = std::move(that.bpm_latch_);
+  this->frame_ = std::move(that.frame_);
+  this->disk_scheduler_ = std::move(that.disk_scheduler_);
+  this->replacer_ = std::move(that.replacer_);
+  this->lock_ = std::move(that.lock_); // 关键修复：移动锁对象
+  this->page_id_ = that.page_id_; // TODO(wwz) 这个资源转移之后 被转移的对象要怎么处理？？
+  this->is_valid_ = that.is_valid_;
   return *this;
 }
 
@@ -251,7 +208,7 @@ auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard
 auto WritePageGuard::GetPageId() const -> page_id_t {
   // 断言：如果当前守卫无效（合同作废），直接触发错误，避免无效操作
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid write guard");
-  return page_id_;  // 返回存储的页面ID（门牌号）
+  return page_id_; // 返回存储的页面ID（门牌号）
 }
 
 /**
@@ -336,13 +293,68 @@ void WritePageGuard::Flush() {
  * 最后作废自己的合同（标记守卫为无效，避免后续操作）。
  * 顺序很重要：如果先还钥匙再报备改动，会导致无法访问房子数据；如果不还钥匙，中介会以为房子还在租（资源泄漏）。
  */
-void WritePageGuard::Drop() { 
-  if(frame_&&frame_->pin_count_.load()!=0){
-  frame_->pin_count_.fetch_sub(1);
+void WritePageGuard::Drop() {
+  if (lock_.owns_lock()) {
+    lock_.unlock();
   }
-  is_valid_ = true; 
+
+  if (frame_ && frame_->pin_count_.load() != 0) {
+    frame_->pin_count_.fetch_sub(1);
+  }
+  if (frame_) {
+    replacer_->SetEvictable(frame_->frame_id_, true);
+  }
+  is_valid_ = false;
 }
 
 WritePageGuard::~WritePageGuard() { Drop(); }
 
-}  // namespace bustub
+/**
+ * @brief The only constructor for an RAII `WritePageGuard` that creates a valid guard.
+ *
+ * 【现实逻辑类比】：相当于"图书馆管理员准备让读者修改某本书"的初始化流程。
+ *  - 这里的`WritePageGuard`就像"修改书籍的专属授权卡"，只有拿到这张卡，才能合法修改书籍；
+ *  - 图书馆管理员（对应`buffer pool manager`）是唯一能发放这张卡的人，确保修改行为受管控；
+ *  - 构造这个Guard的过程，就是管理员收集"修改书籍所需的全部工具和信息"，并封装到授权卡里的过程。
+ *
+ * Note that only the buffer pool manager is allowed to call this constructor.
+ * 【现实逻辑类比】：就像只有图书馆管理员能发放"书籍修改授权卡"，普通读者（其他模块）不能自己造卡，
+ *  避免未经允许的修改操作，保证书籍（内存页）的安全。
+ *
+ * TODO(P1): Add implementation.
+ *
+ * @param page_id The page ID of the page we want to write to.
+ *  【现实逻辑类比】：要修改的书籍的唯一编号（比如图书馆里每本书的ISBN号），通过这个编号能精准定位到目标书籍。
+ *  作用：告诉Guard"我们要修改的是哪一个具体的内存页"，是定位目标的核心标识。
+ *
+ * @param frame A shared pointer to the frame that holds the page we want to protect.
+ *  【现实逻辑类比】：存放目标书籍的"书架格子"（frame是内存池中的固定存储单元，相当于书架格子），
+ *  这个格子里当前正放着我们要修改的那本书（内存页）。
+ *  作用：Guard通过这个指针直接访问到"要修改的内存页所在的内存单元"，是操作的载体。
+ *
+ * @param replacer A shared pointer to the buffer pool manager's replacer.
+ *  【现实逻辑类比】：图书馆的"书籍替换规则管理器"（比如当书架满了，要按规则把不常用的书放回仓库）。
+ *  作用：当当前要修改的内存页需要被替换出内存时，Guard会通过这个replacer执行替换逻辑，确保内存池的高效利用。
+ *
+ * @param bpm_latch A shared pointer to the buffer pool manager's latch.
+ *  【现实逻辑类比】：图书馆的"书架区域门锁"，用来控制对书架区域的访问（防止多人同时修改同一本书造成混乱）。
+ *  作用：Guard持有这个锁的指针，在进行写操作时会锁定这个 latch，保证对内存页的写操作是线程安全的，避免数据竞争。
+ *
+ * @param disk_scheduler A shared pointer to the buffer pool manager's disk scheduler.
+ *  【现实逻辑类比】：图书馆的"仓库存取调度员"（负责把书从仓库运到书架，或从书架运回仓库）。
+ *  作用：当需要将修改后的内存页写回磁盘（相当于把修改后的书放回仓库），或从磁盘读取数据到内存时，
+ *  Guard会通过这个disk_scheduler调度磁盘IO操作，是内存与磁盘数据交互的"调度中介"。
+ */
+WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
+                               std::shared_ptr<ArcReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch,
+                               std::shared_ptr<DiskScheduler> disk_scheduler)
+  : page_id_(page_id),
+    frame_(std::move(frame)),
+    replacer_(std::move(replacer)),
+    bpm_latch_(std::move(bpm_latch)),
+    disk_scheduler_(std::move(disk_scheduler)) {
+  lock_ = std::unique_lock<std::shared_mutex>(frame_->rwlatch_);
+  replacer_->RecordAccess(frame_->frame_id_, page_id);
+  is_valid_ = true;
+}
+} // namespace bustub

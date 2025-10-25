@@ -26,12 +26,10 @@
 #include "common/config.h"
 #include "recovery/log_manager.h"
 #include "storage/disk/disk_scheduler.h"
-#include "storage/page/page.h"
 #include "storage/page/page_guard.h"
 
 // 定义BusTub命名空间，避免与其他库的类/函数重名
 namespace bustub {
-
 // 前向声明：提前告诉编译器这些类存在，避免循环依赖（因为FrameHeader与这些类互相引用）
 class BufferPoolManager;
 class ReadPageGuard;
@@ -59,7 +57,7 @@ class FrameHeader {
   friend class ReadPageGuard;
   friend class WritePageGuard;
 
- public:
+public:
   /**
    * @brief 构造函数：创建帧头时指定帧ID
    * 类比现实：图书馆新增一个书架，给它贴标签时先写好书架编号（frame_id）
@@ -67,13 +65,13 @@ class FrameHeader {
    */
   explicit FrameHeader(frame_id_t frame_id);
 
- private:
+private:
   /**
    * @brief 获取帧数据的只读指针
    * 类比现实：读者只能看书架上的书（不能改），所以管理员给一个"只读版本"的书内容指针
    * @return 指向帧数据的const char*（不能通过该指针修改数据）
    */
-  auto GetData() const -> const char *;
+  [[nodiscard]] auto GetData() const -> const char *;
 
   /**
    * @brief 获取帧数据的可修改指针
@@ -88,7 +86,6 @@ class FrameHeader {
    * 但书架本身还在（帧数据会被后续新页覆盖）
    */
   void Reset();
-
   /** @brief 该帧头对应的帧ID（唯一标识，类似图书馆书架的编号） */
   const frame_id_t frame_id_;
 
@@ -134,7 +131,7 @@ class FrameHeader {
  * 注意：实现前需通读项目文档，且必须先完成ArcReplacer（缓存淘汰算法）和DiskManager（磁盘IO）的实现
  */
 class BufferPoolManager {
- public:
+public:
   /**
    * @brief 构造函数：初始化缓冲池管理器
    * 类比现实：创建一个图书馆，指定有多少个书架（num_frames）、
@@ -188,7 +185,7 @@ class BufferPoolManager {
    * @return 成功返回WritePageGuard（写权限凭证），失败返回std::optional空值
    */
   auto CheckedWritePage(page_id_t page_id, AccessType access_type = AccessType::Unknown)
-      -> std::optional<WritePageGuard>;
+    -> std::optional<WritePageGuard>;
 
   /**
    * @brief 尝试获取一个页的读权限（带检查，失败返回空）
@@ -263,9 +260,9 @@ class BufferPoolManager {
 
   auto NewPageById(page_id_t page_id) -> bool;
 
-  auto Cut(frame_id_t frame_id) -> bool;
+  bool Cut(frame_id_t frame_id);
 
- private:
+private:
   /** @brief 缓冲池的总帧数（内存中能同时存储的页数量，类似图书馆的总书架数） */
   const size_t num_frames_;
 
@@ -300,7 +297,7 @@ class BufferPoolManager {
   /** @brief 淘汰器（用ARC算法选择要淘汰的帧，类似图书馆的"冷门书筛选器"）
    * 当没有空闲帧时，通过淘汰器找到"最不常用"的未被使用帧（pin_count=0），淘汰它来腾出空间
    */
-  std::shared_ptr<ArcReplacer> replacer_;  // TODO(wwz) 试试根据gtest的测试样例 来写代码
+  std::shared_ptr<ArcReplacer> replacer_; // TODO(wwz) 试试根据gtest的测试样例 来写代码
 
   /** @brief A pointer to the disk scheduler. Shared with the page guards for flushing. */
   std::shared_ptr<DiskScheduler> disk_scheduler_;
@@ -315,4 +312,4 @@ class BufferPoolManager {
   // 我们建议实现一个辅助函数，用于返回一个空闲且内部未存储任何内容的帧的
   // ID。此外，你可能还需要实现一个辅助函数，该函数要么返回一个已存储页面数据的FrameHeader的共享指针，要么返回该FrameHeader的索引。
 };
-}  // namespace bustub
+} // namespace bustub

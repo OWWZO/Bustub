@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <iostream>
 #include <iterator>
 #include <list>
 #include <memory>
@@ -27,7 +28,6 @@
 #include "storage/index/index_iterator.h"
 
 namespace bustub {
-
 /**
  *
  * TODO(P1): Add implementation
@@ -35,7 +35,8 @@ namespace bustub {
  * @brief a new ArcReplacer, with lists initialized to be empty and target size to 0
  * @param num_frames the maximum number of frames the ArcReplacer will be required to cache
  */
-ArcReplacer::ArcReplacer(size_t num_frames) : replacer_size_(num_frames) {}
+ArcReplacer::ArcReplacer(size_t num_frames) : replacer_size_(num_frames) {
+}
 
 /*基于 p 参数决定淘汰优先级
 根据p（MRU 的目标大小）与当前 MRU 实际大小的对比，决定优先淘汰 MRU 还是 MFU：
@@ -63,12 +64,16 @@ auto ArcReplacer::Evict() -> std::optional<frame_id_t> {
     it++;
   }
 
+  if (evictable_mfu.empty() && evictable_mru.empty()) {
+    return std::nullopt;
+  }
+
   // 选result的策略代码
   frame_id_t result;
-  if (mru_target_size_ > mru_.size() && !evictable_mfu.empty()) {
+  if ((mru_target_size_ > mru_.size() && !evictable_mfu.empty()) || evictable_mru.empty()) {
     result = evictable_mfu.front();
     evictable_mfu.pop_front();
-  } else if (mru_target_size_ <= mru_.size()||evictable_mfu.empty()) {
+  } else if (mru_target_size_ <= mru_.size() || evictable_mfu.empty()) {
     result = evictable_mru.front();
     evictable_mru.pop_front();
   }
@@ -110,12 +115,11 @@ auto ArcReplacer::Evict() -> std::optional<frame_id_t> {
     }
     item++;
   }
-
   return result;
 
-  if (evictable_mfu.empty() && evictable_mru.empty()) {
-    return std::nullopt;
-  }
+  // if (evictable_mfu.empty() && evictable_mru.empty()) {
+  //   return std::nullopt;
+  // }
 }
 
 void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_unused]] AccessType access_type) {
@@ -143,17 +147,6 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
     }
 
     if (count >= replacer_size_ * 2) {
-      // if(mru_target_size_<mru_ghost_.size()){
-      //   for (auto it = ghost_map_.begin(); it != ghost_map_.end();) {
-      //     if (mru_ghost_.back() == (*it).second->page_id_) {
-      //       ghost_map_.erase(it);
-      //       break;
-      //     }
-      //     it++;
-      //   }
-      //   // 抛弃末尾
-      //   mru_ghost_.pop_back();
-      // }
       if (!mru_ghost_.empty()) {
         for (auto it = ghost_map_.begin(); it != ghost_map_.end();) {
           if (mru_ghost_.back() == (*it).second->page_id_) {
@@ -181,7 +174,7 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
     // 如果mru_ghost 满了3 再插入新页 就要抛弃1个 但是mfu_ghost可以超设置的size
 
     // 清除要删除的帧的 ghost映射
-    if (!mru_ghost_.empty()&&count>=replacer_size_) {
+    if (!mru_ghost_.empty() && count >= replacer_size_) {
       for (auto it = ghost_map_.begin(); it != ghost_map_.end();) {
         if (mru_ghost_.back() == (*it).second->page_id_) {
           ghost_map_.erase(it);
@@ -212,7 +205,6 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
       }
       it++;
     }
-
   } else if (status == ArcStatus::MFU) {
     for (auto it = mfu_.begin(); it != mfu_.end();) {
       if (*it == frame_id) {
@@ -268,8 +260,8 @@ void ArcReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
   // TODO(wwz)申请写或者读权限时 应该调用这个函数 设置状态 还有其他调用时 都要set一下
 
   // TODO(wwz): 调用这个函数 一定要加上  FlushPage(alive_map_[frame_id]->page_id_);
-
-  alive_map_[frame_id]->evictable_ = set_evictable;
+  if (alive_map_.find(frame_id) != alive_map_.end())
+    alive_map_[frame_id]->evictable_ = set_evictable;
 }
 
 void ArcReplacer::Remove(frame_id_t frame_id) {
@@ -330,5 +322,4 @@ auto ArcReplacer::Size() -> size_t {
   }
   return result;
 }
-
-}  // namespace bustub
+} // namespace bustub

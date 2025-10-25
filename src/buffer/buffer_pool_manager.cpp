@@ -25,7 +25,6 @@
 #include "storage/page/page_guard.h"
 
 namespace bustub {
-
 /**
  * @brief The constructor for a `FrameHeader` that initializes all fields to default values.
  *
@@ -59,67 +58,31 @@ void FrameHeader::Reset() {
 }
 
 BufferPoolManager::BufferPoolManager(size_t num_frames, DiskManager *disk_manager, LogManager *log_manager)
-    : num_frames_(num_frames),
-      next_page_id_(0),
-      bpm_latch_(std::make_shared<std::mutex>()),
-      replacer_(std::make_shared<ArcReplacer>(num_frames)),
-      disk_scheduler_(std::make_shared<DiskScheduler>(disk_manager)),
-      log_manager_(log_manager) {
+  : num_frames_(num_frames),
+    next_page_id_(0),
+    bpm_latch_(std::make_shared<std::mutex>()),
+    replacer_(std::make_shared<ArcReplacer>(num_frames)),
+    disk_scheduler_(std::make_shared<DiskScheduler>(disk_manager)),
+    log_manager_(log_manager) {
   // Not strictly necessary...
   std::scoped_lock latch(*bpm_latch_);
 
   // Initialize the monotonically increasing counter at 0.
   next_page_id_.store(0);
 
-  // Allocate all of the in-memory frames up front.
+  // Allocate all  the in-memory frames up front.
   frames_.reserve(num_frames_);
 
   // The page table should have exactly `num_frames_` slots, corresponding to exactly `num_frames_` frames.
   page_table_.reserve(num_frames_);
 
-  // Initialize all of the frame headers, and fill the free frame list with all possible frame IDs (since all frames are
+  // Initialize all the frame headers, and fill the free frame list with all possible frame IDs (since all frames are
   // initially free).
+
   for (size_t i = 0; i < num_frames_; i++) {
     frames_.push_back(std::make_shared<FrameHeader>(i));
     free_frames_.push_back(static_cast<int>(i));
   }
-}
-
-// TODO(wwz) arc_replacer 只告诉淘汰哪个 不执行淘汰逻辑
-auto BufferPoolManager::Cut(frame_id_t frame_id) -> bool {
-  auto frame = replacer_->alive_map_[frame_id];
-  auto status = frame->arc_status_;
-  if (status == ArcStatus::MFU) {
-    for (auto it = replacer_->mfu_.begin(); it != replacer_->mfu_.end();) {
-      if (*it == frame_id) {
-        replacer_->mfu_.erase(it);
-        break;
-      }
-      it++;
-    }
-    replacer_->mfu_ghost_.insert(replacer_->mfu_ghost_.begin(), frame->page_id_);
-  } else {
-    for (auto it = replacer_->mru_.begin(); it != replacer_->mru_.end();) {
-      if (*it == frame_id) {
-        replacer_->mru_.erase(it);
-        break;
-      }
-      it++;
-    }
-    replacer_->mru_ghost_.insert(replacer_->mru_ghost_.begin(), frame->page_id_);
-  }
-  free_frames_.insert(free_frames_.begin(), frame_id);
-
-  replacer_->ghost_map_[frame->page_id_] = frame;
-  for (auto it = replacer_->alive_map_.begin(); it != replacer_->alive_map_.end();) {
-    if (it->first == frame_id) {
-      it = replacer_->alive_map_.erase(it);
-      break;
-    }
-    it++;
-  }
-
-  return true;
 }
 
 /**
@@ -133,38 +96,42 @@ BufferPoolManager::~BufferPoolManager() = default;
 auto BufferPoolManager::Size() const -> size_t { return num_frames_; }
 
 auto BufferPoolManager::NewPage() -> page_id_t {
-  // TODO(wwz): 总帧数限定
-  page_id_t next_page = next_page_id_.fetch_add(1);
-  if (!free_frames_.empty()) {
-
+  page_id_t next_page;
+  if (free_frames_.empty()) {
+    auto temp = replacer_->Evict();
+    if (temp.has_value()) {
+      Cut(temp.value());
+    } else {
+      return -1;
+    }
+    next_page = next_page_id_.fetch_add(1);
     frame_id_t frame_id = free_frames_.front();
     free_frames_.pop_front();
 
-    for(auto& item:frames_){
-      if(item->frame_id_==frame_id){
-        item->page_id_=next_page;
+    for (auto &item : frames_) {
+      if (item->frame_id_ == frame_id) {
+        item->page_id_ = next_page;
+        break;
+      }
+    }
+    page_table_[next_page] = frame_id;
+  } else {
+    next_page = next_page_id_.fetch_add(1);
+    frame_id_t frame_id = free_frames_.front();
+    free_frames_.pop_front();
+
+    for (auto &item : frames_) {
+      if (item->frame_id_ == frame_id) {
+        item->page_id_ = next_page;
         break;
       }
     }
 
     page_table_[next_page] = frame_id;
-
-  } else {
-    if (Cut(replacer_->Evict().value())) {
-      frame_id_t frame_id = free_frames_.front();
-      free_frames_.pop_front();
-      auto frame = std::make_shared<FrameHeader>(frame_id);
-      frames_.emplace_back(frame);
-      frame->pin_count_++;
-      frame->page_id_ = next_page;
-      frames_.emplace_back(frame);
-      page_table_[next_page] = frame_id;
-    } else {
-      return INVALID_PAGE_ID;
-    }
   }
   return next_page;
 }
+
 /*
  * @brief 从数据库中移除一个页面，包括磁盘和内存中的页面。
  *
@@ -217,40 +184,6 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   return true;
 }
 
-auto BufferPoolManager::ExistsInTable(page_id_t page_id) -> bool {
-  return std::any_of(page_table_.begin(), page_table_.end(),
-                     [page_id](const std::pair<page_id_t, frame_id_t> &id) { return id.first == page_id; });
-}
-
-// TODO(wwz): 查找操作替换成辅助函数
-auto BufferPoolManager::GetFrameById(frame_id_t frame_id) -> std::shared_ptr<FrameHeader> {  // 确保已经在内存里
-
-  for (auto &item : frames_) {
-    if (item->frame_id_ == frame_id) {
-      return item;
-    }
-  }
-
-  return nullptr;
-}
-
-auto BufferPoolManager::NewPageById(page_id_t page_id) -> bool {
-  if (free_frames_.empty() && Cut(replacer_->Evict().value())) {
-  } else {
-    return false;
-  }
-
-  if (!free_frames_.empty()) {
-    frame_id_t frame_id = free_frames_.front();
-    free_frames_.pop_front();
-    auto frame = std::make_shared<FrameHeader>(frame_id);
-
-    frames_.emplace_back(frame);
-    page_table_[page_id] = frame_id;
-    return true;
-  }
-  return false;
-}
 /**
  * @brief 获取对一页数据的可选写锁定保护。用户可根据需要指定`AccessType`。
  *
@@ -291,9 +224,8 @@ auto BufferPoolManager::NewPageById(page_id_t page_id) -> bool {
 如果客厅桌子、沙发、椅子全摆满了东西（内存完全没空闲），实在腾不出地方放相册，那你就没法抱相册出来改了（对应返回
 “std::nullopt”，表示内存不够没法操作）*/
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
-  if (ExistsInTable(page_id)) {//从页表里确定
-
-    replacer_->RecordAccess(page_table_[page_id], page_id);
+  if (page_table_.find(page_id) != page_table_.end()) {
+    // 从页表里确定
 
     for (auto &item : frames_) {
       if (item->page_id_ == page_id) {
@@ -302,11 +234,11 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
       }
     }
 
+    auto temp_lock = bpm_latch_;
     return std::make_optional(
-        WritePageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, bpm_latch_, disk_scheduler_));
+        WritePageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, temp_lock, disk_scheduler_));
   }
-
-  if (frames_.size() < num_frames_ && NewPageById(page_id)) {
+  if (!free_frames_.empty() && NewPageById(page_id)) {
     auto data = GetFrameById(page_table_[page_id])->data_.data();
 
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
@@ -316,23 +248,38 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     disk_scheduler_->Read(task);
 
     replacer_->RecordAccess(page_table_[page_id], page_id);
-
+    for (auto &item : frames_) {
+      if (item->page_id_ == page_id) {
+        item->pin_count_.fetch_add(1);
+        break;
+      }
+    }
     return std::make_optional(
         WritePageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, bpm_latch_, disk_scheduler_));
   }
 
   auto frame_id = replacer_->Evict();
+  //已经有要淘汰的帧 执行pool的删除帧相关信息逻辑
 
   if (frame_id.has_value() && Cut(frame_id.value())) {
-    auto data = GetFrameById(page_table_[page_id])->data_.data();
+    auto data = GetFrameById(frame_id.value())->data_.data();
 
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
     auto task = std::make_optional(DiskRequest(false, data, page_id, std::move(promise)));
 
     disk_scheduler_->Read(task);
     replacer_->RecordAccess(page_table_[page_id], page_id);
+
+    NewPageById(page_id);
+
+    for (auto &item : frames_) {
+      if (item->page_id_ == page_id) {
+        item->pin_count_.fetch_add(1);
+        break;
+      }
+    }
     return std::make_optional(
-        WritePageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, bpm_latch_, disk_scheduler_));
+        WritePageGuard(page_id, GetFrameById(frame_id.value()), replacer_, bpm_latch_, disk_scheduler_));
   }
 
   return std::nullopt;
@@ -354,8 +301,11 @@ TODO (P1)：添加实现。
 否则，返回一个ReadPageGuard，确保对页数据的共享和只读访问。
 */
 auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_type) -> std::optional<ReadPageGuard> {
-  if (ExistsInTable(page_id)) {
-    replacer_->RecordAccess(page_table_[page_id], page_id);
+  if (page_id == -1) {
+    return std::nullopt;
+  }
+  if (page_table_.find(page_id) != page_table_.end()) {
+    // 从页表里确定
 
     for (auto &item : frames_) {
       if (item->page_id_ == page_id) {
@@ -364,40 +314,53 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
       }
     }
 
-    FlushPage(replacer_->alive_map_[page_table_[page_id]]->page_id_);  // TODO(wwz) 不确定是否是同一个东西
-
+    auto temp_lock = bpm_latch_;
     return std::make_optional(
-        ReadPageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, bpm_latch_, disk_scheduler_));
+        ReadPageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, temp_lock, disk_scheduler_));
   }
-
-  if (frames_.size() < num_frames_ && NewPageById(page_id)) {
+  if (!free_frames_.empty() && NewPageById(page_id)) {
     auto data = GetFrameById(page_table_[page_id])->data_.data();
 
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
+
     auto task = std::make_optional(DiskRequest(false, data, page_id, std::move(promise)));
 
     disk_scheduler_->Read(task);
+
     replacer_->RecordAccess(page_table_[page_id], page_id);
-    FlushPage(replacer_->alive_map_[page_table_[page_id]]->page_id_);
+    for (auto &item : frames_) {
+      if (item->page_id_ == page_id) {
+        item->pin_count_.fetch_add(1);
+        break;
+      }
+    }
     return std::make_optional(
         ReadPageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, bpm_latch_, disk_scheduler_));
   }
 
   auto frame_id = replacer_->Evict();
+  //已经有要淘汰的帧 执行pool的删除帧相关信息逻辑
 
   if (frame_id.has_value() && Cut(frame_id.value())) {
-    auto data = GetFrameById(page_table_[page_id])->data_.data();
+    auto data = GetFrameById(frame_id.value())->data_.data();
 
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
     auto task = std::make_optional(DiskRequest(false, data, page_id, std::move(promise)));
 
     disk_scheduler_->Read(task);
-    replacer_->RecordAccess(page_table_[page_id], page_id);
 
-    FlushPage(replacer_->alive_map_[page_table_[page_id]]->page_id_);
+    replacer_->RecordAccess(frame_id.value(), page_id);
 
+    NewPageById(page_id);
+    for (auto &item : frames_) {
+      if (item->page_id_ == page_id) {
+        item->pin_count_.fetch_add(1);
+        break;
+      }
+    }
+    //TODO(wwz) 加锁等待任务完成
     return std::make_optional(
-        ReadPageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, bpm_latch_, disk_scheduler_));
+        ReadPageGuard(page_id, GetFrameById(frame_id.value()), replacer_, bpm_latch_, disk_scheduler_));
   }
 
   return std::nullopt;
@@ -491,6 +454,7 @@ auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool {
   }
   return false;
 }
+
 /**
  * @brief 安全地将页面的数据刷新到磁盘。
  *
@@ -514,26 +478,24 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
   std::shared_ptr<FrameHeader> frame;
   if (it != page_table_.end()) {
     auto frame_id = page_table_[page_id];
-    bool is_dirty;
     for (auto &item : frames_) {
       if (item->frame_id_ == frame_id) {
-        is_dirty = item->is_dirty_;
         frame = item;
         break;
       }
     }
-    if (is_dirty) {
-      auto data = frame->data_.data();
+    auto data = frame->data_.data();
 
-      std::promise<bool> promise = disk_scheduler_->CreatePromise();
+    std::promise<bool> promise = disk_scheduler_->CreatePromise();
 
-      auto task = std::make_optional(DiskRequest(false, data, page_id, std::move(promise)));
-      disk_scheduler_->Write(task);
-    }
+    auto task = std::make_optional(DiskRequest(false, data, page_id, std::move(promise)));
+    disk_scheduler_->Write(task);
+
     return true;
   }
   return false;
 }
+
 /**
  * @brief 不安全地将内存中的所有页面数据刷新到磁盘。
  *
@@ -566,6 +528,7 @@ void BufferPoolManager::FlushAllPagesUnsafe() {
     }
   }
 }
+
 /**
  * @brief 安全地将内存中的所有页数据刷新到磁盘。
  *
@@ -631,4 +594,61 @@ auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> 
   return std::nullopt;
 }
 
-}  // namespace bustub
+auto BufferPoolManager::ExistsInTable(page_id_t page_id) -> bool {
+  return std::any_of(page_table_.begin(), page_table_.end(),
+                     [page_id](const std::pair<page_id_t, frame_id_t> &id) { return id.first == page_id; });
+}
+
+// TODO(wwz): 查找操作替换成辅助函数
+auto BufferPoolManager::GetFrameById(frame_id_t frame_id) -> std::shared_ptr<FrameHeader> {
+  // 确保已经在内存里
+
+  for (auto &item : frames_) {
+    if (item->frame_id_ == frame_id) {
+      return item;
+    }
+  }
+
+  return nullptr;
+}
+
+auto BufferPoolManager::NewPageById(page_id_t page_id) -> bool {
+  if (!free_frames_.empty()) {
+    frame_id_t frame_id = free_frames_.front();
+    free_frames_.pop_front();
+    page_table_[page_id] = frame_id;
+
+    for (auto &item : frames_) {
+      if (item->frame_id_ == frame_id) {
+        item->page_id_ = page_id;
+        break;
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+auto BufferPoolManager::Cut(frame_id_t frame_id) -> bool {
+  {
+    free_frames_.insert(free_frames_.begin(), frame_id);
+
+    for (auto it = frames_.begin(); it != frames_.end();) {
+      if ((*it)->frame_id_ == frame_id) {
+        FlushPage((*it)->page_id_);
+
+        break;
+      }
+      it++;
+    }
+    for (auto it = page_table_.begin(); it != page_table_.end();) {
+      if (it->second == frame_id) {
+        page_table_.erase(it);
+        break;
+      }
+      it++;
+    }
+    return true;
+  }
+}
+} // namespace bustub
