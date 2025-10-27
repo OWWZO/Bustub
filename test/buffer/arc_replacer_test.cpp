@@ -17,6 +17,8 @@
 #include "buffer/arc_replacer.h"
 
 #include "gtest/gtest.h"
+#include <thread>
+#include <vector>
 
 namespace bustub {
 
@@ -210,5 +212,326 @@ TEST(ArcReplacerTest, SampleTest2) {
 }
 
 // Feel free to write more tests!
+
+/**
+ * 测试ARC替换器的replacer_size_成员变量
+ * replacer_size_是ARC替换器的总容量，对应构造函数的num_frames参数
+ * 它限制了mru_和mfu_列表的总大小上限（活跃帧总数不能超过此值）
+ */
+TEST(ArcReplacerTest, ReplacerSizeTest) {
+  // 测试1：验证构造函数正确设置replacer_size_
+  const size_t test_capacity = 10;
+  ArcReplacer arc_replacer(test_capacity);
+  
+  // 初始状态下，Size()应该返回0（没有可淘汰的帧）
+  ASSERT_EQ(0, arc_replacer.Size());
+  
+  // 测试2：验证不能超过replacer_size_限制
+  // 添加帧直到达到容量限制
+  for (frame_id_t frame_id = 1; frame_id <= static_cast<frame_id_t>(test_capacity); ++frame_id) {
+    arc_replacer.RecordAccess(frame_id, frame_id);
+    arc_replacer.SetEvictable(frame_id, true);
+    ASSERT_EQ(frame_id, arc_replacer.Size());
+  }
+  
+  // 此时应该达到最大容量
+  ASSERT_EQ(test_capacity, arc_replacer.Size());
+  
+  // 测试3：验证超过容量时的行为
+  // 尝试添加超过容量的帧，应该触发淘汰机制
+  arc_replacer.RecordAccess(static_cast<frame_id_t>(test_capacity + 1), static_cast<page_id_t>(test_capacity + 1));
+  arc_replacer.SetEvictable(static_cast<frame_id_t>(test_capacity + 1), true);
+  
+  // Size()应该仍然等于replacer_size_（因为会淘汰一个帧为新帧让位）
+  ASSERT_EQ(test_capacity, arc_replacer.Size());
+  
+  // 测试4：验证容量为0的边界情况
+  ArcReplacer empty_replacer(0);
+  ASSERT_EQ(0, empty_replacer.Size());
+  
+  // 尝试向容量为0的替换器添加帧
+  empty_replacer.RecordAccess(1, 1);
+  empty_replacer.SetEvictable(1, true);
+  ASSERT_EQ(0, empty_replacer.Size()); // 应该立即被淘汰
+}
+
+/**
+ * 测试不同容量下的replacer_size_行为
+ */
+TEST(ArcReplacerTest, ReplacerSizeDifferentCapacitiesTest) {
+  // 测试小容量
+  ArcReplacer small_replacer(3);
+  ASSERT_EQ(0, small_replacer.Size());
+  
+  // 填满小容量替换器
+  for (frame_id_t frame_id = 1; frame_id <= 3; ++frame_id) {
+    small_replacer.RecordAccess(frame_id, frame_id);
+    small_replacer.SetEvictable(frame_id, true);
+  }
+  ASSERT_EQ(3, small_replacer.Size());
+  
+  // 测试大容量
+  ArcReplacer large_replacer(100);
+  ASSERT_EQ(0, large_replacer.Size());
+  
+  // 添加一些帧但不超过容量
+  for (frame_id_t frame_id = 1; frame_id <= 50; ++frame_id) {
+    large_replacer.RecordAccess(frame_id, frame_id);
+    large_replacer.SetEvictable(frame_id, true);
+  }
+  ASSERT_EQ(50, large_replacer.Size());
+}
+
+/**
+ * 测试replacer_size_与幽灵帧的关系
+ * 验证总容量包括活跃帧和幽灵帧的总和不能超过2*replacer_size_
+ */
+TEST(ArcReplacerTest, ReplacerSizeWithGhostFramesTest) {
+  const size_t capacity = 5;
+  ArcReplacer arc_replacer(capacity);
+  
+  // 填满替换器
+  for (frame_id_t frame_id = 1; frame_id <= static_cast<frame_id_t>(capacity); ++frame_id) {
+    arc_replacer.RecordAccess(frame_id, frame_id);
+    arc_replacer.SetEvictable(frame_id, true);
+  }
+  ASSERT_EQ(capacity, arc_replacer.Size());
+  
+  // 淘汰所有帧，创建幽灵帧
+  for (frame_id_t frame_id = 1; frame_id <= static_cast<frame_id_t>(capacity); ++frame_id) {
+    auto evicted = arc_replacer.Evict();
+    ASSERT_TRUE(evicted.has_value());
+  }
+  ASSERT_EQ(0, arc_replacer.Size());
+  
+  // 现在添加新帧，应该触发幽灵帧的清理机制
+  // 总容量（活跃帧+幽灵帧）不应该超过2*capacity
+  arc_replacer.RecordAccess(static_cast<frame_id_t>(capacity + 1), static_cast<page_id_t>(capacity + 1));
+  arc_replacer.SetEvictable(static_cast<frame_id_t>(capacity + 1), true);
+  ASSERT_EQ(1, arc_replacer.Size());
+}
+
+/**
+ * 测试replacer_size_在并发访问下的正确性
+ */
+TEST(ArcReplacerTest, ReplacerSizeConcurrencyTest) {
+  const size_t capacity = 10;
+  ArcReplacer arc_replacer(capacity);
+  
+  // 模拟多线程同时访问
+  std::vector<std::thread> threads;
+  
+  // 线程1：添加帧
+  threads.emplace_back([&arc_replacer]() {
+    for (frame_id_t frame_id = 1; frame_id <= 5; ++frame_id) {
+      arc_replacer.RecordAccess(frame_id, frame_id);
+      arc_replacer.SetEvictable(frame_id, true);
+    }
+  });
+  
+  // 线程2：添加更多帧
+  threads.emplace_back([&arc_replacer]() {
+    for (frame_id_t frame_id = 6; frame_id <= 10; ++frame_id) {
+      arc_replacer.RecordAccess(frame_id, frame_id);
+      arc_replacer.SetEvictable(frame_id, true);
+    }
+  });
+  
+  // 等待所有线程完成
+  for (auto& thread : threads) {
+    thread.join();
+  }
+  
+  // 验证最终大小不超过容量
+  ASSERT_LE(arc_replacer.Size(), capacity);
+}
+
+/**
+ * 测试mru_target_size_的增加和减少逻辑
+ * mru_target_size_是ARC算法中的关键参数，控制MRU和MFU区域的大小比例
+ * 
+ * 增加逻辑（访问MRU_GHOST时）：
+ * - 如果mru_ghost_.size() >= mfu_ghost_.size()，则mru_target_size_ += 1
+ * - 否则，mru_target_size_ += floor(mfu_ghost_.size() / mru_ghost_.size())
+ * - 上限为replacer_size_
+ * 
+ * 减少逻辑（访问MFU_GHOST时）：
+ * - 如果mfu_ghost_.size() >= mru_ghost_.size()，则mru_target_size_ -= 1
+ * - 否则，mru_target_size_ -= floor(mru_ghost_.size() / mfu_ghost_.size())
+ * - 下限为0
+ */
+TEST(ArcReplacerTest, MruTargetSizeAdjustmentTest) {
+  const size_t capacity = 10;
+  ArcReplacer arc_replacer(capacity);
+  
+  // 测试1：MRU_GHOST访问时的增加逻辑
+  // 先填满替换器，然后全部淘汰，创建幽灵帧
+  for (frame_id_t frame_id = 1; frame_id <= static_cast<frame_id_t>(capacity); ++frame_id) {
+    arc_replacer.RecordAccess(frame_id, frame_id);
+    arc_replacer.SetEvictable(frame_id, true);
+  }
+  
+  // 淘汰所有帧，创建MRU幽灵帧
+  for (frame_id_t frame_id = 1; frame_id <= static_cast<frame_id_t>(capacity); ++frame_id) {
+    auto evicted = arc_replacer.Evict();
+    ASSERT_TRUE(evicted.has_value());
+  }
+  
+  // 现在访问MRU_GHOST中的页面，应该增加mru_target_size_
+  // 由于mru_ghost_.size() = capacity, mfu_ghost_.size() = 0
+  // 所以mru_ghost_.size() >= mfu_ghost_.size()，应该增加1
+  arc_replacer.RecordAccess(1, 1);  // 访问MRU_GHOST中的页面1
+  arc_replacer.SetEvictable(1, true);
+  
+  // 验证页面1被移到了MFU区域
+  ASSERT_EQ(1, arc_replacer.Size());
+  
+  // 测试2：MFU_GHOST访问时的减少逻辑
+  // 再次淘汰页面1，创建MFU幽灵帧
+  auto evicted = arc_replacer.Evict();
+  ASSERT_TRUE(evicted.has_value());
+  ASSERT_EQ(0, arc_replacer.Size());
+  
+  // 现在访问MFU_GHOST中的页面1，应该减少mru_target_size_
+  // 由于mfu_ghost_.size() = 1, mru_ghost_.size() = capacity-1
+  // 所以mfu_ghost_.size() < mru_ghost_.size()，应该减少floor((capacity-1)/1) = capacity-1
+  arc_replacer.RecordAccess(2, 1);  // 访问MFU_GHOST中的页面1
+  arc_replacer.SetEvictable(2, true);
+  
+  // 验证页面1被移到了MFU区域
+  ASSERT_EQ(1, arc_replacer.Size());
+}
+
+/**
+ * 测试mru_target_size_的边界条件
+ */
+TEST(ArcReplacerTest, MruTargetSizeBoundaryTest) {
+  const size_t capacity = 5;
+  ArcReplacer arc_replacer(capacity);
+  
+  // 测试上限：mru_target_size_不应该超过replacer_size_
+  // 创建大量MRU幽灵帧，然后访问它们
+  for (frame_id_t frame_id = 1; frame_id <= static_cast<frame_id_t>(capacity); ++frame_id) {
+    arc_replacer.RecordAccess(frame_id, frame_id);
+    arc_replacer.SetEvictable(frame_id, true);
+  }
+  
+  // 淘汰所有帧
+  for (frame_id_t frame_id = 1; frame_id <= static_cast<frame_id_t>(capacity); ++frame_id) {
+    auto evicted = arc_replacer.Evict();
+    ASSERT_TRUE(evicted.has_value());
+  }
+  
+  // 多次访问MRU_GHOST，测试上限
+  for (int i = 0; i < 10; ++i) {
+    arc_replacer.RecordAccess(1, 1);
+    arc_replacer.SetEvictable(1, true);
+    auto evicted = arc_replacer.Evict();
+    ASSERT_TRUE(evicted.has_value());
+  }
+  
+  // 测试下限：mru_target_size_不应该小于0
+  // 创建大量MFU幽灵帧，然后访问它们
+  for (int i = 0; i < 10; ++i) {
+    arc_replacer.RecordAccess(1, 1);
+    arc_replacer.SetEvictable(1, true);
+    auto evicted = arc_replacer.Evict();
+    ASSERT_TRUE(evicted.has_value());
+  }
+  
+  // 多次访问MFU_GHOST，测试下限
+  for (int i = 0; i < 10; ++i) {
+    arc_replacer.RecordAccess(1, 1);
+    arc_replacer.SetEvictable(1, true);
+    auto evicted = arc_replacer.Evict();
+    ASSERT_TRUE(evicted.has_value());
+  }
+}
+
+/**
+ * 测试mru_target_size_的复杂调整场景
+ */
+TEST(ArcReplacerTest, MruTargetSizeComplexScenarioTest) {
+  const size_t capacity = 8;
+  ArcReplacer arc_replacer(capacity);
+  
+  // 场景1：创建不同大小的幽灵帧列表
+  // 先创建4个MRU幽灵帧
+  for (frame_id_t frame_id = 1; frame_id <= 4; ++frame_id) {
+    arc_replacer.RecordAccess(frame_id, frame_id);
+    arc_replacer.SetEvictable(frame_id, true);
+  }
+  
+  // 淘汰它们，创建MRU幽灵帧
+  for (frame_id_t frame_id = 1; frame_id <= 4; ++frame_id) {
+    auto evicted = arc_replacer.Evict();
+    ASSERT_TRUE(evicted.has_value());
+  }
+  
+  // 再创建2个MFU幽灵帧
+  for (frame_id_t frame_id = 5; frame_id <= 6; ++frame_id) {
+    arc_replacer.RecordAccess(frame_id, frame_id);
+    arc_replacer.SetEvictable(frame_id, true);
+  }
+  
+  // 访问一次让它们进入MFU
+  arc_replacer.RecordAccess(5, 5);
+  arc_replacer.RecordAccess(6, 6);
+  
+  // 淘汰它们，创建MFU幽灵帧
+  auto evicted1 = arc_replacer.Evict();
+  auto evicted2 = arc_replacer.Evict();
+  ASSERT_TRUE(evicted1.has_value());
+  ASSERT_TRUE(evicted2.has_value());
+  
+  // 现在状态：mru_ghost_.size() = 4, mfu_ghost_.size() = 2
+  // 访问MRU_GHOST：mru_ghost_.size() >= mfu_ghost_.size()，应该增加1
+  arc_replacer.RecordAccess(7, 1);  // 访问MRU_GHOST中的页面1
+  arc_replacer.SetEvictable(7, true);
+  ASSERT_EQ(1, arc_replacer.Size());
+  
+  // 访问MFU_GHOST：mfu_ghost_.size() < mru_ghost_.size()，应该减少floor(3/1) = 3
+  arc_replacer.RecordAccess(8, 5);  // 访问MFU_GHOST中的页面5
+  arc_replacer.SetEvictable(8, true);
+  ASSERT_EQ(2, arc_replacer.Size());
+}
+
+/**
+ * 测试mru_target_size_在空幽灵列表时的行为
+ */
+TEST(ArcReplacerTest, MruTargetSizeEmptyGhostTest) {
+  const size_t capacity = 3;
+  ArcReplacer arc_replacer(capacity);
+  
+  // 测试MFU_GHOST为空时的减少逻辑
+  // 创建一些MRU幽灵帧
+  for (frame_id_t frame_id = 1; frame_id <= static_cast<frame_id_t>(capacity); ++frame_id) {
+    arc_replacer.RecordAccess(frame_id, frame_id);
+    arc_replacer.SetEvictable(frame_id, true);
+  }
+  
+  // 淘汰所有帧
+  for (frame_id_t frame_id = 1; frame_id <= static_cast<frame_id_t>(capacity); ++frame_id) {
+    auto evicted = arc_replacer.Evict();
+    ASSERT_TRUE(evicted.has_value());
+  }
+  
+  // 现在mru_ghost_.size() = capacity, mfu_ghost_.size() = 0
+  // 访问MRU_GHOST，应该增加1
+  arc_replacer.RecordAccess(1, 1);
+  arc_replacer.SetEvictable(1, true);
+  ASSERT_EQ(1, arc_replacer.Size());
+  
+  // 淘汰这个帧，创建MFU幽灵帧
+  auto evicted = arc_replacer.Evict();
+  ASSERT_TRUE(evicted.has_value());
+  
+  // 现在mru_ghost_.size() = capacity-1, mfu_ghost_.size() = 1
+  // 访问MFU_GHOST，由于mfu_ghost_.size() < mru_ghost_.size()，
+  // 应该减少floor((capacity-1)/1) = capacity-1
+  arc_replacer.RecordAccess(2, 1);
+  arc_replacer.SetEvictable(2, true);
+  ASSERT_EQ(1, arc_replacer.Size());
+}
 
 }  // namespace bustub

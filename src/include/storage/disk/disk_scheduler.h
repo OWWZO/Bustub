@@ -15,7 +15,7 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once  // （编译器指令：确保当前头文件只被编译一次，避免重复包含导致的语法错误，类似"#ifndef ... #define ...
-              // #endif"的简化版）
+// #endif"的简化版）
 
 // 引入依赖的头文件，提供后续代码需要的功能支持
 #include <condition_variable>
@@ -28,7 +28,8 @@
 #include "common/config.h"
 #include "storage/disk/disk_manager.h"  // （引入磁盘管理器头文件，DiskScheduler需要通过DiskManager实际操作磁盘）
 
-namespace bustub {  // （属于bustub命名空间，避免与其他代码的类/函数名冲突，是C++中组织代码的常用方式）
+namespace bustub {
+// （属于bustub命名空间，避免与其他代码的类/函数名冲突，是C++中组织代码的常用方式）
 
 /**
  * @brief Represents a Write or Read request for the DiskManager to execute.
@@ -36,26 +37,27 @@ namespace bustub {  // （属于bustub命名空间，避免与其他代码的类
  */
 struct DiskRequest {
   /** Flag indicating whether the request is a write or a read. */
-  bool is_write_;  // （请求类型标识：true表示"写请求"，false表示"读请求"；类比快递单上的"寄件"或"收件"标记）
+  bool is_write_; // （请求类型标识：true表示"写请求"，false表示"读请求"；类比快递单上的"寄件"或"收件"标记）
 
   /**
    *  Pointer to the start of the memory location where a page is either:
    *   1. being read into from disk (on a read).
    *   2. being written out to disk (on a write).
    */
-  char *data_;  // （数据缓冲区指针：指向内存中存储数据的起始位置，类比快递的"包裹存放地址"）
-                // 读请求时：磁盘上的页面数据会被读取到这个内存地址
-                // 写请求时：这个内存地址中的数据会被写入到磁盘
+  char *data_; // （数据缓冲区指针：指向内存中存储数据的起始位置，类比快递的"包裹存放地址"）
+  // 读请求时：磁盘上的页面数据会被读取到这个内存地址
+  // 写请求时：这个内存地址中的数据会被写入到磁盘
 
   /** ID of the page being read from / written to disk. */
   page_id_t
-      page_id_;  // （页面ID：磁盘上的最小数据单位是"页面"，这个ID是页面在磁盘上的唯一标识；类比快递单上的"收件人地址"，明确数据要到磁盘的哪个位置）
+  page_id_; // （页面ID：磁盘上的最小数据单位是"页面"，这个ID是页面在磁盘上的唯一标识；类比快递单上的"收件人地址"，明确数据要到磁盘的哪个位置）
 
   /** Callback used to signal to the request issuer when the request has been completed. */
   std::promise<bool> callback_;
-  
+
   DiskRequest(bool is_write, char *data, page_id_t page_id, std::promise<bool> &&promise)
-      : is_write_(is_write), data_(data), page_id_(page_id), callback_(std::move(promise)) {}
+    : is_write_(is_write), data_(data), page_id_(page_id), callback_(std::move(promise)) {
+  }
 };
 
 /**
@@ -67,7 +69,7 @@ struct DiskRequest {
  *  （磁盘调度器类：负责调度磁盘的读/写操作，类比"快递站调度员"——接收快递单（请求），安排快递员（后台线程）按顺序处理，最终通过快递员（DiskManager）完成实际配送（磁盘操作））
  */
 class DiskScheduler {
- public:
+public:
   /**
    * 构造函数：初始化DiskScheduler，需要传入一个DiskManager指针
    * 类比：创建快递站调度员时，必须先指定合作的快递员团队（DiskManager），否则调度员无法完成实际配送
@@ -118,10 +120,10 @@ class DiskScheduler {
    */
   void DeallocatePage(page_id_t page_id) { disk_manager_->DeletePage(page_id); }
 
- private:
+private:
   /** Pointer to the disk manager. */
   DiskManager *disk_manager_ __attribute__((
-      __unused__));  // （DiskManager指针：指向实际操作磁盘的对象，类比快递站的"快递员团队"；__attribute__((__unused__))是告诉编译器这个变量可能暂时未被使用，避免警告）
+    __unused__)); // （DiskManager指针：指向实际操作磁盘的对象，类比快递站的"快递员团队"；__attribute__((__unused__))是告诉编译器这个变量可能暂时未被使用，避免警告）
   /**
    * A shared queue to concurrently schedule and process requests. When the DiskScheduler's destructor is called,
    * `std::nullopt` is put into the queue to signal to the background thread to stop execution.
@@ -135,5 +137,4 @@ class DiskScheduler {
    */
   std::optional<std::thread> background_thread_;
 };
-
-}  // namespace bustub
+} // namespace bustub

@@ -118,11 +118,23 @@ void ReadPageGuard::Drop() {
     lock_.unlock();
   }
 
-  if (frame_ && frame_->pin_count_.load() != 0) {
-    frame_->pin_count_.fetch_sub(1);
-  }
-  if (frame_) {
-    replacer_->SetEvictable(frame_->frame_id_, true);
+  // 使用BPM锁保护对frame的修改，防止并发冲突
+  if (bpm_latch_) {
+    std::lock_guard<std::mutex> bpm_lock(*bpm_latch_);
+    if (frame_ && frame_->pin_count_.load() != 0) {
+      frame_->pin_count_.fetch_sub(1);
+    }
+    if (frame_) {
+      replacer_->SetEvictable(frame_->frame_id_, true);
+    }
+  } else {
+    // 如果没有bpm_latch_，直接执行（向后兼容）
+    if (frame_ && frame_->pin_count_.load() != 0) {
+      frame_->pin_count_.fetch_sub(1);
+    }
+    if (frame_) {
+      replacer_->SetEvictable(frame_->frame_id_, true);
+    }
   }
   is_valid_ = false;
 }
@@ -298,11 +310,23 @@ void WritePageGuard::Drop() {
     lock_.unlock();
   }
 
-  if (frame_ && frame_->pin_count_.load() != 0) {
-    frame_->pin_count_.fetch_sub(1);
-  }
-  if (frame_) {
-    replacer_->SetEvictable(frame_->frame_id_, true);
+  // 使用BPM锁保护对frame的修改，防止并发冲突
+  if (bpm_latch_) {
+    std::lock_guard<std::mutex> bpm_lock(*bpm_latch_);
+    if (frame_ && frame_->pin_count_.load() != 0) {
+      frame_->pin_count_.fetch_sub(1);
+    }
+    if (frame_) {
+      replacer_->SetEvictable(frame_->frame_id_, true);
+    }
+  } else {
+    // 如果没有bpm_latch_，直接执行（向后兼容）
+    if (frame_ && frame_->pin_count_.load() != 0) {
+      frame_->pin_count_.fetch_sub(1);
+    }
+    if (frame_) {
+      replacer_->SetEvictable(frame_->frame_id_, true);
+    }
   }
   is_valid_ = false;
 }
