@@ -104,6 +104,7 @@ auto BufferPoolManager::NewPage() -> page_id_t {
     } else {
       return -1;
     }
+    std::unique_lock lock(*bpm_latch_);
     next_page = next_page_id_.fetch_add(1);
     frame_id_t frame_id = free_frames_.front();
     free_frames_.pop_front();
@@ -116,6 +117,7 @@ auto BufferPoolManager::NewPage() -> page_id_t {
     }
     page_table_[next_page] = frame_id;
   } else {
+    std::unique_lock lock(*bpm_latch_);
     next_page = next_page_id_.fetch_add(1);
     frame_id_t frame_id = free_frames_.front();
     free_frames_.pop_front();
@@ -152,6 +154,7 @@ auto BufferPoolManager::NewPage() -> page_id_t {
    * 通知仓库删除这本书（磁盘删除页）；如果有人借或不在架上，删除失败。
  */
 auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
+  std::unique_lock lock(*bpm_latch_);
   if (page_table_.find(page_id) == page_table_.end()) {
     return false;
   }
@@ -225,10 +228,9 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
 “std::nullopt”，表示内存不够没法操作）*/
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
   if (page_table_.find(page_id) != page_table_.end()) {
-    // 从页表里确定
-
     for (auto &item : frames_) {
       if (item->page_id_ == page_id) {
+        std::unique_lock lock(*bpm_latch_);
         item->pin_count_.fetch_add(1);
         break;
       }
@@ -250,6 +252,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     replacer_->RecordAccess(page_table_[page_id], page_id);
     for (auto &item : frames_) {
       if (item->page_id_ == page_id) {
+        std::unique_lock lock(*bpm_latch_);
         item->pin_count_.fetch_add(1);
         break;
       }
@@ -274,6 +277,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
 
     for (auto &item : frames_) {
       if (item->page_id_ == page_id) {
+        std::unique_lock lock(*bpm_latch_);
         item->pin_count_.fetch_add(1);
         break;
       }
@@ -305,16 +309,15 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     return std::nullopt;
   }
   if (page_table_.find(page_id) != page_table_.end()) {
-    // 从页表里确定
-
     for (auto &item : frames_) {
       if (item->page_id_ == page_id) {
+        std::unique_lock lock(*bpm_latch_);
         item->pin_count_.fetch_add(1);
         break;
       }
     }
 
-    auto temp_lock = bpm_latch_;
+    auto temp_lock =  bpm_latch_;
     return std::make_optional(
         ReadPageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, temp_lock, disk_scheduler_));
   }
@@ -330,6 +333,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     replacer_->RecordAccess(page_table_[page_id], page_id);
     for (auto &item : frames_) {
       if (item->page_id_ == page_id) {
+        std::unique_lock lock(*bpm_latch_);
         item->pin_count_.fetch_add(1);
         break;
       }
@@ -354,6 +358,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     NewPageById(page_id);
     for (auto &item : frames_) {
       if (item->page_id_ == page_id) {
+        std::unique_lock lock(*bpm_latch_);
         item->pin_count_.fetch_add(1);
         break;
       }
@@ -434,7 +439,7 @@ auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool {
   std::shared_ptr<FrameHeader> frame;
   if (it != page_table_.end()) {
     auto frame_id = page_table_[page_id];
-    bool is_dirty;
+    bool is_dirty = false;
     for (auto &item : frames_) {
       if (item->frame_id_ == frame_id) {
         is_dirty = item->is_dirty_;
@@ -474,6 +479,7 @@ auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool {
  * @return 如果在页表中找不到该页面，则返回`false`；否则，返回`true`。
  */
 auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
+  std::unique_lock lock(*bpm_latch_);
   auto it = page_table_.find(page_id);
   std::shared_ptr<FrameHeader> frame;
   if (it != page_table_.end()) {
@@ -541,6 +547,7 @@ void BufferPoolManager::FlushAllPagesUnsafe() {
  * TODO(P1)：添加实现
  */
 void BufferPoolManager::FlushAllPages() {
+  std::unique_lock lock(*bpm_latch_);
   for (auto &item : frames_) {
     if (item->is_dirty_) {
       page_id_t page_id;
@@ -581,6 +588,7 @@ void BufferPoolManager::FlushAllPages() {
  * @return std::optional<size_t> 如果页面存在，则返回钉住计数；否则，返回`std::nullopt`。
  */
 auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> {
+  std::unique_lock lock(*bpm_latch_);  // 修复：添加锁保护
   auto it = page_table_.find(page_id);
   if (it == page_table_.end()) {
     return std::nullopt;
@@ -594,15 +602,10 @@ auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> 
   return std::nullopt;
 }
 
-auto BufferPoolManager::ExistsInTable(page_id_t page_id) -> bool {
-  return std::any_of(page_table_.begin(), page_table_.end(),
-                     [page_id](const std::pair<page_id_t, frame_id_t> &id) { return id.first == page_id; });
-}
-
 // TODO(wwz): 查找操作替换成辅助函数
 auto BufferPoolManager::GetFrameById(frame_id_t frame_id) -> std::shared_ptr<FrameHeader> {
   // 确保已经在内存里
-
+  std::unique_lock lock(*bpm_latch_);
   for (auto &item : frames_) {
     if (item->frame_id_ == frame_id) {
       return item;
@@ -613,6 +616,7 @@ auto BufferPoolManager::GetFrameById(frame_id_t frame_id) -> std::shared_ptr<Fra
 }
 
 auto BufferPoolManager::NewPageById(page_id_t page_id) -> bool {
+  std::unique_lock lock(*bpm_latch_);
   if (!free_frames_.empty()) {
     frame_id_t frame_id = free_frames_.front();
     free_frames_.pop_front();
@@ -630,25 +634,27 @@ auto BufferPoolManager::NewPageById(page_id_t page_id) -> bool {
 }
 
 auto BufferPoolManager::Cut(frame_id_t frame_id) -> bool {
-  {
-    free_frames_.insert(free_frames_.begin(), frame_id);
+  std::unique_lock lock(*bpm_latch_);
+  free_frames_.insert(free_frames_.begin(), frame_id);
+  lock.unlock();
 
-    for (auto it = frames_.begin(); it != frames_.end();) {
-      if ((*it)->frame_id_ == frame_id) {
-        FlushPage((*it)->page_id_);
 
-        break;
-      }
-      it++;
+  for (auto it = frames_.begin(); it != frames_.end();) {
+    if ((*it)->frame_id_ == frame_id) {
+      FlushPage((*it)->page_id_);  // 内部会获取bpm_latch_
+      break;
     }
-    for (auto it = page_table_.begin(); it != page_table_.end();) {
-      if (it->second == frame_id) {
-        page_table_.erase(it);
-        break;
-      }
-      it++;
-    }
-    return true;
+    it++;
   }
+
+  std::unique_lock lock1(*bpm_latch_);
+  for (auto it = page_table_.begin(); it != page_table_.end();) {
+    if (it->second == frame_id) {
+      page_table_.erase(it);
+      break;
+    }
+    it++;
+  }
+  return true;
 }
 } // namespace bustub

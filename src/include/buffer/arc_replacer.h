@@ -12,11 +12,6 @@
 
 #pragma once
 
-// 引入标准库头文件：list用于维护有序的帧/页列表（类似现实中的"排队队列"），
-// memory用于智能指针（管理对象生命周期，避免内存泄漏），
-// mutex用于线程互斥锁（保证多线程下数据安全，类似现实中"单门进出"的规则），
-// optional用于表示"可能有值也可能没值"的结果（类似现实中"快递可能送到也可能没送到"），
-// unordered_map用于哈希映射（快速查找，类似现实中"手机通讯录：名字→号码"的映射关系）
 #include <list>
 #include <memory>
 #include <mutex>  // NOLINT
@@ -60,14 +55,15 @@ enum class ArcStatus { MRU, MFU, MRU_GHOST, MFU_GHOST };
  *      是否可借出（evictable）、当前在哪个区域（arc_status）
  */
 struct FrameStatus {
-  page_id_t page_id_;     // 该帧对应的页ID（类似"书的ISBN号"，唯一标识一本书）
-  frame_id_t frame_id_;   // 帧在内存中的ID（类似"书架编号"，唯一标识存放位置）
-  bool evictable_;        // 该帧是否可被淘汰（类似"书是否允许借出"，true=可淘汰/可借出）
-  ArcStatus arc_status_;  // 该帧在ARC中的状态（属于MRU/MFU还是对应的幽灵区）
+  page_id_t page_id_; // 该帧对应的页ID（类似"书的ISBN号"，唯一标识一本书）
+  frame_id_t frame_id_; // 帧在内存中的ID（类似"书架编号"，唯一标识存放位置）
+  bool evictable_; // 该帧是否可被淘汰（类似"书是否允许借出"，true=可淘汰/可借出）
+  ArcStatus arc_status_; // 该帧在ARC中的状态（属于MRU/MFU还是对应的幽灵区）
 
   // 构造函数：初始化帧状态（类似"新书入库时填写借阅卡"，明确书的ID、位置、是否可借、放哪个区）
   FrameStatus(page_id_t pid, frame_id_t fid, bool ev, ArcStatus st)
-      : page_id_(pid), frame_id_(fid), evictable_(ev), arc_status_(st) {}
+    : page_id_(pid), frame_id_(fid), evictable_(ev), arc_status_(st) {
+  }
 };
 
 /**
@@ -78,15 +74,14 @@ struct FrameStatus {
  *      同时记着之前被借走又还回的书（幽灵帧），如果读者再借，能快速找出来。
  */
 class ArcReplacer {
- friend BufferPoolManager;
+  friend BufferPoolManager;
 
- public:
+public:
   /**
    * 构造函数：初始化ARC替换器，指定最大可管理的帧数量
    * @param num_frames 缓存能容纳的最大帧数量（类似图书馆的"总书架容量"，最多能放多少本书）
    */
   explicit ArcReplacer(size_t num_frames);
-  //TODO(wwz) 只能1个参数
 
   /**
    * 禁用拷贝和移动构造：避免多个ArcReplacer实例共享同一套缓存数据（类似图书馆不会有两个完全相同的"书架管理系统"，
@@ -148,9 +143,7 @@ class ArcReplacer {
    */
   auto Size() -> size_t;
 
-
-
- private:
+private:
   // TODO(student): implement me! You can replace or remove these member variables as you like.
 
   /**
@@ -175,7 +168,7 @@ class ArcReplacer {
    * 类似"图书馆当前可下架的书的数量"，用于快速返回Size()函数的结果，避免每次遍历列表统计
    * [[maybe_unused]]：告诉编译器"这个变量可能暂时没被使用，但不要报警告"（学生实现时会用到）
    */
-  [[maybe_unused]] size_t curr_size_{0};
+  size_t curr_size_{0};
 
   /**
    * MRU区的目标大小（对应ARC论文中的"p"参数）
@@ -183,13 +176,13 @@ class ArcReplacer {
    *      剩下的活跃帧放MFU区），根据幽灵帧的访问情况自动更新（类似"图书馆根据读者对新书和热门书的借阅比例，
    *      动态调整新书区和热门区的书架容量"）
    */
-  [[maybe_unused]] size_t mru_target_size_{0};  // TODO(wwz) 大小做限制
+  size_t mru_target_size_{0}; // TODO(wwz) 大小做限制
 
   /**
    * ARC替换器的总容量（对应构造函数的num_frames，即缓存能容纳的最大帧数量）
    * 类似"图书馆的总书架容量"，是mru_和mfu_列表的总大小上限（活跃帧总数不能超过此值）
    */
-  [[maybe_unused]] size_t replacer_size_;
+   size_t replacer_size_;
 
   /**
    * 线程互斥锁：保证多线程下对ARC数据结构（list、map）的操作是线程安全的
@@ -200,5 +193,4 @@ class ArcReplacer {
 
   // TODO(student): You can add member variables / functions as you like.
 };
-
-}  // namespace bustub
+} // namespace bustub

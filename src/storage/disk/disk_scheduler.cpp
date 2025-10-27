@@ -18,7 +18,6 @@
 #include "storage/disk/disk_manager.h"
 
 namespace bustub {
-
 DiskScheduler::DiskScheduler(DiskManager *disk_manager) : disk_manager_(disk_manager) {
   // Spawn the background thread
   background_thread_.emplace([&] { StartWorkerThread(); });
@@ -71,4 +70,4 @@ void DiskScheduler::StartWorkerThread() {
 void DiskScheduler::Write(std::optional<DiskRequest> &task) { disk_manager_->WritePage(task->page_id_, task->data_); }
 
 void DiskScheduler::Read(std::optional<DiskRequest> &task) { disk_manager_->ReadPage(task->page_id_, task->data_); }
-}  // namespace bustub
+} // namespace bustub

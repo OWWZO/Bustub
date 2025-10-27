@@ -254,8 +254,6 @@ public:
    */
   auto GetPinCount(page_id_t page_id) -> std::optional<size_t>;
 
-  auto ExistsInTable(page_id_t page_id) -> bool;
-
   auto GetFrameById(frame_id_t frame_id) -> std::shared_ptr<FrameHeader>;
 
   auto NewPageById(page_id_t page_id) -> bool;
@@ -278,7 +276,6 @@ private:
    * TODO(P1)：建议补充该锁具体保护哪些操作，比如"修改页表时加锁"、"从空闲帧列表取帧时加锁"等
    */
   std::shared_ptr<std::mutex> bpm_latch_;
-
   /** @brief 缓冲池管理的所有帧头（类似图书馆所有书架的标签集合）
    * 每个元素是FrameHeader的智能指针，管理帧的元数据（帧ID、pin计数、脏标记等）
    */
@@ -297,8 +294,7 @@ private:
   /** @brief 淘汰器（用ARC算法选择要淘汰的帧，类似图书馆的"冷门书筛选器"）
    * 当没有空闲帧时，通过淘汰器找到"最不常用"的未被使用帧（pin_count=0），淘汰它来腾出空间
    */
-  std::shared_ptr<ArcReplacer> replacer_; // TODO(wwz) 试试根据gtest的测试样例 来写代码
-
+  std::shared_ptr<ArcReplacer> replacer_;
   /** @brief A pointer to the disk scheduler. Shared with the page guards for flushing. */
   std::shared_ptr<DiskScheduler> disk_scheduler_;
 
