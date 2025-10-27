@@ -63,12 +63,18 @@ auto ArcReplacer::Evict() -> std::optional<frame_id_t> {
 
   // 选result的策略代码 可以选出哪个最要被淘汰
   frame_id_t result = -1;
-  if ((mru_target_size_ > mru_.size() && !evictable_mfu.empty()) || evictable_mru.empty()) {
+  if (mru_.size() < mru_target_size_ && !evictable_mfu.empty()) {
+    // MRU实际大小 < 目标大小：优先从MFU淘汰
     result = evictable_mfu.front();
     evictable_mfu.pop_front();
-  } else if (mru_target_size_ <= mru_.size() || evictable_mfu.empty()) {
+  } else if (!evictable_mru.empty()) {
+    // MRU实际大小 >= 目标大小：优先从MRU淘汰
     result = evictable_mru.front();
     evictable_mru.pop_front();
+  } else if (!evictable_mfu.empty()) {
+    // MRU列表为空，从MFU淘汰
+    result = evictable_mfu.front();
+    evictable_mfu.pop_front();
   } else {
     return std::nullopt;
   }
@@ -162,7 +168,7 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
       }
     }
     //处理mru mru_ghost总和最大为size的逻辑
-     if (mru_.size()-1+mru_ghost_.size()==replacer_size_) {
+     if (mru_.size()+mru_ghost_.size()-1==replacer_size_) {
        for (auto it = ghost_map_.begin(); it != ghost_map_.end();) {
          if (mru_ghost_.back() == (*it).second->page_id_) {
            ghost_map_.erase(it);
@@ -250,6 +256,7 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
         alive_map_[frame_id] = ghost_map_[page_id];
         alive_map_[frame_id]->frame_id_ = frame_id;
         alive_map_[frame_id]->arc_status_ = ArcStatus::MFU;
+        alive_map_[frame_id]->evictable_ = false;
         mfu_ghost_.erase(it);
         mfu_.insert(mfu_.begin(), frame_id);
         auto temp= ghost_map_.find(page_id);
