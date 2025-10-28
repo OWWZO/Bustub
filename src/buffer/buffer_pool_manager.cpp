@@ -271,10 +271,11 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
         break;
       }
     }
+    auto temp_lock = bpm_latch_;
     lock.unlock();
     return std::make_optional(
         WritePageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_,
-                       bpm_latch_, disk_scheduler_));
+                       temp_lock, disk_scheduler_));
   }
 
   auto frame_id = replacer_->Evict();
@@ -303,10 +304,11 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
         break;
       }
     }
+    auto temp_lock = bpm_latch_;
     lock.unlock();
     return std::make_optional(
         WritePageGuard(page_id, GetFrameById(frame_id.value()), replacer_,
-                       bpm_latch_, disk_scheduler_));
+                       temp_lock, disk_scheduler_));
   }
 
   return std::nullopt;
@@ -357,12 +359,14 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
       return std::nullopt;
     }
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
-
-    auto task = std::make_optional(
-        DiskRequest(false, data, page_id, std::move(promise)));
-
-    disk_scheduler_->Read(task);
-
+    auto future=promise.get_future();
+    auto task = DiskRequest(false, data, page_id, std::move(promise));
+    std::vector<DiskRequest> v;
+    v.push_back(std::move(task));
+    disk_scheduler_->Schedule(v);
+    if (!future.get()) {
+      return std::nullopt;
+    }
     replacer_->RecordAccess(page_table_[page_id], page_id);
     replacer_->SetEvictable(page_table_[page_id],false);
     for (auto &item : frames_) {
@@ -371,11 +375,11 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
         break;
       }
     }
-
+    auto temp_lock = bpm_latch_;
     lock.unlock();
     return std::make_optional(
         ReadPageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_,
-                      bpm_latch_, disk_scheduler_));
+                      temp_lock, disk_scheduler_));
   }
 
   auto frame_id = replacer_->Evict();
@@ -387,11 +391,15 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
       return std::nullopt;
     }
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
-    auto task = std::make_optional(
-        DiskRequest(false, data, page_id, std::move(promise)));
+    auto future=promise.get_future();
+    auto task =DiskRequest(false, data, page_id, std::move(promise));
 
-    disk_scheduler_->Read(task);
-
+    std::vector<DiskRequest> v;
+    v.push_back(std::move(task));
+    disk_scheduler_->Schedule(v);
+    if (!future.get()) {
+      return std::nullopt;
+    }
     replacer_->RecordAccess(frame_id.value(), page_id);
     replacer_->SetEvictable(page_table_[page_id],false);
 
@@ -402,10 +410,11 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
         break;
       }
     }
+    auto temp_lock = bpm_latch_;
     lock.unlock();
     return std::make_optional(
         ReadPageGuard(page_id, GetFrameById(frame_id.value()), replacer_,
-                      bpm_latch_, disk_scheduler_));
+                      temp_lock, disk_scheduler_));
   }
 
   return std::nullopt;
@@ -483,17 +492,14 @@ auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool {
   std::shared_ptr<FrameHeader> frame;
   if (it != page_table_.end()) {
     auto frame_id = page_table_[page_id];
-    bool is_dirty = false;
     for (auto &item : frames_) {
       if (item->frame_id_ == frame_id) {
-        is_dirty = item->is_dirty_;
         frame = item;
         break;
       }
     }
-    if (is_dirty) {
+    if (frame->is_dirty_) {
       auto data = frame->data_.data();
-
       std::promise<bool> promise = disk_scheduler_->CreatePromise();
       auto future=promise.get_future();
       auto task = DiskRequest(true, data, page_id, std::move(promise));
@@ -540,18 +546,20 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
         break;
       }
     }
-    auto data = frame->data_.data();
+    if (frame->is_dirty_){
+      auto data = frame->data_.data();
 
-    std::promise<bool> promise = disk_scheduler_->CreatePromise();
-    auto future =promise.get_future();
-    auto task =DiskRequest(true, data, page_id, std::move(promise));
-    std::vector<DiskRequest> v;
-    v.push_back(std::move(task));
-    disk_scheduler_->Schedule(v);
-    if (!future.get()) {
-      return false;
+      std::promise<bool> promise = disk_scheduler_->CreatePromise();
+      auto future =promise.get_future();
+      auto task =DiskRequest(true, data, page_id, std::move(promise));
+      std::vector<DiskRequest> v;
+      v.push_back(std::move(task));
+      disk_scheduler_->Schedule(v);
+      if (!future.get()) {
+        return false;
+      }
+      frame->is_dirty_=false;
     }
-    frame->is_dirty_=false;
     return true;
   }
   return false;
