@@ -318,6 +318,7 @@ void WritePageGuard::Drop() {
     }
     if (frame_) {
       replacer_->SetEvictable(frame_->frame_id_, true);
+      frame_->is_dirty_=true;
     }
   } else {
     // 如果没有bpm_latch_，直接执行（向后兼容）
@@ -326,6 +327,7 @@ void WritePageGuard::Drop() {
     }
     if (frame_) {
       replacer_->SetEvictable(frame_->frame_id_, true);
+      frame_->is_dirty_=true;
     }
   }
   is_valid_ = false;
