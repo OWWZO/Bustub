@@ -123,17 +123,17 @@ void ReadPageGuard::Drop() {
     std::lock_guard<std::mutex> bpm_lock(*bpm_latch_);
     if (frame_ && frame_->pin_count_.load() != 0) {
       frame_->pin_count_.fetch_sub(1);
-    }
-    if (frame_) {
-      replacer_->SetEvictable(frame_->frame_id_, true);
+      if (frame_->pin_count_.load() == 0) {
+        replacer_->SetEvictable(frame_->frame_id_, true);
+      }
     }
   } else {
     // 如果没有bpm_latch_，直接执行（向后兼容）
     if (frame_ && frame_->pin_count_.load() != 0) {
       frame_->pin_count_.fetch_sub(1);
-    }
-    if (frame_) {
-      replacer_->SetEvictable(frame_->frame_id_, true);
+      if (frame_->pin_count_.load() == 0) {
+        replacer_->SetEvictable(frame_->frame_id_, true);
+      }
     }
   }
   is_valid_ = false;
@@ -318,7 +318,6 @@ void WritePageGuard::Drop() {
     }
     if (frame_) {
       replacer_->SetEvictable(frame_->frame_id_, true);
-      frame_->is_dirty_=true;
     }
   } else {
     // 如果没有bpm_latch_，直接执行（向后兼容）
@@ -327,7 +326,6 @@ void WritePageGuard::Drop() {
     }
     if (frame_) {
       replacer_->SetEvictable(frame_->frame_id_, true);
-      frame_->is_dirty_=true;
     }
   }
   is_valid_ = false;
@@ -380,6 +378,7 @@ WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> f
     bpm_latch_(std::move(bpm_latch)),
     disk_scheduler_(std::move(disk_scheduler)) {
   lock_ = std::unique_lock<std::shared_mutex>(frame_->rwlatch_);
+  frame_->is_dirty_=true;
   replacer_->RecordAccess(frame_->frame_id_, page_id);
   is_valid_ = true;
 }
