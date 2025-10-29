@@ -104,15 +104,11 @@ auto ReadPageGuard::IsDirty() const -> bool {
 
 void ReadPageGuard::Flush() {
   if (IsDirty()) {
-    auto data = frame_->data_.data();
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
-    auto future =promise.get_future();
-    auto task =DiskRequest(true, data, page_id_, std::move(promise));
-    std::vector<DiskRequest> v;
-    v.push_back(std::move(task));
-    disk_scheduler_->Schedule(v);
-    future.get();
-    frame_->is_dirty_=false;
+    auto task = std::make_optional(DiskRequest(false, frame_->data_.data(), page_id_, std::move(promise)));
+    // 3. 传递左值引用给Write函数
+    disk_scheduler_->Write(task);
+    frame_->is_dirty_ = false;
   }
 }
 
@@ -289,7 +285,6 @@ auto WritePageGuard::IsDirty() const -> bool {
  * TODO(P1): Add implementation.
  */
 void WritePageGuard::Flush() {
-  if (IsDirty()) {
     auto data = frame_->data_.data();
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
     auto future =promise.get_future();
@@ -299,7 +294,6 @@ void WritePageGuard::Flush() {
     disk_scheduler_->Schedule(v);
     future.get();
     frame_->is_dirty_=false;
-  }
 }
 
 /*

@@ -498,8 +498,8 @@ auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool {
         break;
       }
     }
-    if (frame->is_dirty_) {
       auto data = frame->data_.data();
+
       std::promise<bool> promise = disk_scheduler_->CreatePromise();
       auto future=promise.get_future();
       auto task = DiskRequest(true, data, page_id, std::move(promise));
@@ -510,7 +510,6 @@ auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool {
         return false;
       }
       frame->is_dirty_=false;
-    }
     return true;
   }
   return false;
@@ -546,20 +545,18 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
         break;
       }
     }
-    if (frame->is_dirty_){
-      auto data = frame->data_.data();
+    auto data = frame->data_.data();
 
-      std::promise<bool> promise = disk_scheduler_->CreatePromise();
-      auto future =promise.get_future();
-      auto task =DiskRequest(true, data, page_id, std::move(promise));
-      std::vector<DiskRequest> v;
-      v.push_back(std::move(task));
-      disk_scheduler_->Schedule(v);
-      if (!future.get()) {
-        return false;
-      }
-      frame->is_dirty_=false;
+    std::promise<bool> promise = disk_scheduler_->CreatePromise();
+    auto future =promise.get_future();
+    auto task =DiskRequest(true, data, page_id, std::move(promise));
+    std::vector<DiskRequest> v;
+    v.push_back(std::move(task));
+    disk_scheduler_->Schedule(v);
+    if (!future.get()) {
+      return false;
     }
+    frame->is_dirty_=false;
     return true;
   }
   return false;
