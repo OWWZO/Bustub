@@ -178,18 +178,6 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
        }
        mru_ghost_.pop_back();
      }
-    // // 处理mru mfu 超总数逻辑
-    // if (!mru_ghost_.empty() && count == replacer_size_) {
-    //   for (auto it = ghost_map_.begin(); it != ghost_map_.end();) {
-    //     if (mru_ghost_.back() == (*it).second->page_id_) {
-    //       ghost_map_.erase(it);
-    //       break;
-    //     }
-    //     it++;
-    //   }
-    //   // 抛弃末尾
-    //   mru_ghost_.pop_back();
-    // }
     return;
   }
   ArcStatus status;
@@ -246,11 +234,16 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
     }
   } else {
     if (mfu_ghost_.size() >= mru_ghost_.size()) {
-      mru_target_size_ -=1;
+      if (mru_target_size_>0) {
+        mru_target_size_ -=1;
+      }
     } else {
+      if (mru_target_size_-std::floor(static_cast<float>(mru_ghost_.size()) / static_cast<float>(mfu_ghost_.size()))>=0) {
         mru_target_size_ -= std::floor(static_cast<float>(mru_ghost_.size()) / static_cast<float>(mfu_ghost_.size()));
+      }else {
+        mru_target_size_ =0;
+      }
     }
-    mru_target_size_ = std::max(static_cast<size_t>(0), mru_target_size_);
     for (auto it = mfu_ghost_.begin(); it != mfu_ghost_.end();) {
       if (*it == page_id) {
         alive_map_[frame_id] = ghost_map_[page_id];
