@@ -282,6 +282,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
   // 已经有要淘汰的帧 执行pool的删除帧相关信息逻辑
 
   if (frame_id.has_value() && Cut(frame_id.value())) {
+    NewPageById(page_id);
     auto data = GetFrameById(frame_id.value())->data_.data();
     if (!data) {
       return std::nullopt;
@@ -295,7 +296,6 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
     if (!future.get()) {
       return std::nullopt;
     }
-    NewPageById(page_id);
     replacer_->RecordAccess(page_table_[page_id], page_id);
     replacer_->SetEvictable(page_table_[page_id],false);
     for (auto &item : frames_) {
@@ -386,6 +386,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
   // 已经有要淘汰的帧 执行pool的删除帧相关信息逻辑
 
   if (frame_id.has_value() && Cut(frame_id.value())) {
+    NewPageById(page_id);
     auto data = GetFrameById(frame_id.value())->data_.data();
     if (!data) {
       return std::nullopt;
@@ -402,8 +403,6 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
     }
     replacer_->RecordAccess(frame_id.value(), page_id);
     replacer_->SetEvictable(page_table_[page_id],false);
-
-    NewPageById(page_id);
     for (auto &item : frames_) {
       if (item->page_id_ == page_id) {
         item->pin_count_.fetch_add(1);
@@ -658,7 +657,7 @@ void BufferPoolManager::FlushAllPages() {
  */
 auto BufferPoolManager::GetPinCount(page_id_t page_id)
     -> std::optional<size_t> {
-  std::unique_lock lock(*bpm_latch_); // 修复：添加锁保护
+  std::unique_lock lock(*bpm_latch_);
   auto it = page_table_.find(page_id);
   if (it == page_table_.end()) {
     return std::nullopt;

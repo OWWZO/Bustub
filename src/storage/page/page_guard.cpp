@@ -316,6 +316,9 @@ void WritePageGuard::Drop() {
     std::lock_guard<std::mutex> bpm_lock(*bpm_latch_);
     if (frame_ && frame_->pin_count_.load() != 0) {
       frame_->pin_count_.fetch_sub(1);
+      if (frame_->pin_count_.load() == 0) {
+        replacer_->SetEvictable(frame_->frame_id_, true);
+      }
     }
     if (frame_) {
       replacer_->SetEvictable(frame_->frame_id_, true);

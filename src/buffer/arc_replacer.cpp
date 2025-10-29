@@ -271,9 +271,6 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
 }
 
 void ArcReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
-  // TODO(wwz)申请写或者读权限时 应该调用这个函数 设置状态 还有其他调用时 都要set一下
-
-  // TODO(wwz): 调用这个函数 一定要加上  FlushPage(alive_map_[frame_id]->page_id_);
   std::unique_lock lock(latch_);
   if (alive_map_.find(frame_id) != alive_map_.end()) {
     alive_map_[frame_id]->evictable_ = set_evictable;
