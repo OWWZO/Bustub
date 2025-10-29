@@ -127,14 +127,6 @@ void ReadPageGuard::Drop() {
         replacer_->SetEvictable(frame_->frame_id_, true);
       }
     }
-  } else {
-    // 如果没有bpm_latch_，直接执行（向后兼容）
-    if (frame_ && frame_->pin_count_.load() != 0) {
-      frame_->pin_count_.fetch_sub(1);
-      if (frame_->pin_count_.load() == 0) {
-        replacer_->SetEvictable(frame_->frame_id_, true);
-      }
-    }
   }
   is_valid_ = false;
 }
@@ -285,15 +277,11 @@ auto WritePageGuard::IsDirty() const -> bool {
  * TODO(P1): Add implementation.
  */
 void WritePageGuard::Flush() {
-    auto data = frame_->data_.data();
-    std::promise<bool> promise = disk_scheduler_->CreatePromise();
-    auto future =promise.get_future();
-    auto task =DiskRequest(true, data, page_id_, std::move(promise));
-    std::vector<DiskRequest> v;
-    v.push_back(std::move(task));
-    disk_scheduler_->Schedule(v);
-    future.get();
-    frame_->is_dirty_=false;
+  std::promise<bool> promise = disk_scheduler_->CreatePromise();
+  auto task = std::make_optional(DiskRequest(false, frame_->data_.data(), page_id_, std::move(promise)));
+  // 3. 传递左值引用给Write函数
+  disk_scheduler_->Write(task);
+  frame_->is_dirty_=false;
 }
 
 /*
@@ -310,7 +298,6 @@ void WritePageGuard::Drop() {
   if (lock_.owns_lock()) {
     lock_.unlock();
   }
-
   // 使用BPM锁保护对frame的修改，防止并发冲突
   if (bpm_latch_) {
     std::lock_guard<std::mutex> bpm_lock(*bpm_latch_);
@@ -319,17 +306,6 @@ void WritePageGuard::Drop() {
       if (frame_->pin_count_.load() == 0) {
         replacer_->SetEvictable(frame_->frame_id_, true);
       }
-    }
-    if (frame_) {
-      replacer_->SetEvictable(frame_->frame_id_, true);
-    }
-  } else {
-    // 如果没有bpm_latch_，直接执行（向后兼容）
-    if (frame_ && frame_->pin_count_.load() != 0) {
-      frame_->pin_count_.fetch_sub(1);
-    }
-    if (frame_) {
-      replacer_->SetEvictable(frame_->frame_id_, true);
     }
   }
   is_valid_ = false;
