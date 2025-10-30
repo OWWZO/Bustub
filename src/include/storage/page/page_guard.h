@@ -305,8 +305,8 @@ namespace bustub
         bool is_valid_{false};
 
         /**
-  如果你想获得额外的（并非必需的）风格加分，并且想做得更精致一些，那么你可以研究一下
-  std::unique_lock 类型，并使用它来实现闭锁机制，而不是手动调用 lock 和 unlock。
-   */
+如果你想获得额外的（并非必需的）风格加分，并且想做得更精致一些，那么你可以研究一下
+std::unique_lock 类型，并使用它来实现闭锁机制，而不是手动调用 lock 和 unlock。
+*/
     };
 } // namespace bustub
