@@ -62,7 +62,7 @@ struct FrameStatus {
 
   // 构造函数：初始化帧状态（类似"新书入库时填写借阅卡"，明确书的ID、位置、是否可借、放哪个区）
   FrameStatus(page_id_t pid, frame_id_t fid, bool ev, ArcStatus st)
-    : page_id_(pid), frame_id_(fid), evictable_(ev), arc_status_(st) {
+      : page_id_(pid), frame_id_(fid), evictable_(ev), arc_status_(st) {
   }
 };
 
@@ -76,7 +76,7 @@ struct FrameStatus {
 class ArcReplacer {
   friend BufferPoolManager;
 
-public:
+ public:
   /**
    * 构造函数：初始化ARC替换器，指定最大可管理的帧数量
    * @param num_frames 缓存能容纳的最大帧数量（类似图书馆的"总书架容量"，最多能放多少本书）
@@ -107,7 +107,6 @@ public:
    */
   auto Evict() -> std::optional<frame_id_t>;
 
-
   /**
    *页被访问后 应该用这个函数来记录访问 更改replace里的参数 进而选出最佳淘汰人选
    *内部逻辑：
@@ -116,7 +115,6 @@ public:
    *3.
    **/
   void RecordAccess(frame_id_t frame_id, page_id_t page_id, AccessType access_type = AccessType::Unknown);
-
 
   /**
    * 设置帧的可淘汰状态：标记某个帧是否允许被淘汰
@@ -145,7 +143,7 @@ public:
    */
   auto Size() -> size_t;
 
-private:
+ private:
   // TODO(student): implement me! You can replace or remove these member variables as you like.
 
   /**
@@ -195,4 +193,4 @@ private:
 
   // TODO(student): You can add member variables / functions as you like.
 };
-} // namespace bustub
+}  // namespace bustub

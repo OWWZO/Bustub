@@ -35,7 +35,6 @@ namespace bustub {
 ArcReplacer::ArcReplacer(size_t num_frames) : replacer_size_(num_frames) {
 }
 
-
 auto ArcReplacer::Evict() -> std::optional<frame_id_t> {
   std::unique_lock lock(latch_);
   std::list<frame_id_t> evictable_mru;
@@ -53,7 +52,7 @@ auto ArcReplacer::Evict() -> std::optional<frame_id_t> {
     }
     it++;
   }
-  //处理无可淘汰情况
+  // 处理无可淘汰情况
   if (evictable_mfu.empty() && evictable_mru.empty()) {
     return std::nullopt;
   }
@@ -98,7 +97,7 @@ auto ArcReplacer::Evict() -> std::optional<frame_id_t> {
   // alive映射区删除 然后ghost区相对应的加入
   for (auto item = alive_map_.begin(); item != alive_map_.end();) {
     if (item->first == result) {
-      ghost_map_[item->second->page_id_] = item->second; //建立page_id 和帧状态的映射
+      ghost_map_[item->second->page_id_] = item->second; // 建立page_id 和帧状态的映射
       if (item->second->arc_status_ == ArcStatus::MFU) {
         item->second->arc_status_ = ArcStatus::MFU_GHOST;
       } else {
@@ -115,22 +114,22 @@ auto ArcReplacer::Evict() -> std::optional<frame_id_t> {
 
 void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_unused]] AccessType access_type) {
   std::unique_lock lock(latch_);
-  //新页处理逻辑
+  // 新页处理逻辑
   if (ghost_map_.find(page_id) == ghost_map_.end() && alive_map_.find(frame_id) == alive_map_.end()) {
-    //检查是否为新页
-    // 计算现有总数
+    // 检查是否为新页
+    //  计算现有总数
     auto count = Size();
-    //处理mru mfu总数超的情况
+    // 处理mru mfu总数超的情况
     if (count == replacer_size_) {
       lock.unlock();
-      auto id = Evict(); //选出一个来淘汰
+      auto id = Evict(); // 选出一个来淘汰
       lock.lock();
       if (!id.has_value()) {
-        //处理淘汰不了情况
+        // 处理淘汰不了情况
         return;
       }
     }
-    //正常插入新页逻辑
+    // 正常插入新页逻辑
     auto frame = std::make_shared<FrameStatus>(page_id, frame_id, false, ArcStatus::MRU);
     alive_map_[frame_id] = frame;
     mru_.insert(mru_.begin(), frame_id);
@@ -138,7 +137,7 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
     // 如果超过总容量的2倍 要根据p参数来进行淘汰幽灵帧
     if (mru_.size() + mfu_.size() + mru_ghost_.size() + mfu_ghost_.size() - 1 == replacer_size_ * 2) {
       if (!mfu_ghost_.empty()) {
-        //清除mfu_ghost的末尾元素的ghost_map_
+        // 清除mfu_ghost的末尾元素的ghost_map_
         for (auto it = ghost_map_.begin(); it != ghost_map_.end();) {
           if (mfu_ghost_.back() == (*it).second->page_id_) {
             ghost_map_.erase(it);
@@ -151,7 +150,7 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
         return;
       }
     }
-    //处理mru mru_ghost总和最大为size的逻辑
+    // 处理mru mru_ghost总和最大为size的逻辑
     if (mru_.size() + mru_ghost_.size() - 1 == replacer_size_) {
       for (auto it = ghost_map_.begin(); it != ghost_map_.end();) {
         if (mru_ghost_.back() == (*it).second->page_id_) {
@@ -222,8 +221,9 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
         mru_target_size_ -= 1;
       }
     } else {
-      if (mru_target_size_ - (std::floor(static_cast<float>(mru_ghost_.size()) / static_cast<float>(mfu_ghost_.size())))
-          >= 0) {
+      if (mru_target_size_ -
+          (std::floor(static_cast<float>(mru_ghost_.size()) / static_cast<float>(mfu_ghost_.size()))) >=
+          0) {
         mru_target_size_ -= std::floor(static_cast<float>(mru_ghost_.size()) / static_cast<float>(mfu_ghost_.size()));
       } else {
         mru_target_size_ = 0;
@@ -313,4 +313,4 @@ auto ArcReplacer::Size() -> size_t {
   }
   return result;
 }
-} // namespace bustub
+}  // namespace bustub

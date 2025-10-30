@@ -27,9 +27,7 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
 // 关键约束：不能同时有两张有效许可证对应同一本书，否则会出现"两个人同时改同一本书"的冲突（双重释放/锁竞争）
 // 类比场景：你把《数据库原理》的阅读许可证给A后，你不能再去书架拿这本书，只有A能拿，且A的使用权限和你原来的一致
 
-ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {
-  *this = std::move(that);
-}
+ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept { *this = std::move(that); }
 
 // 相当于"图书阅读许可证"的二次转让+旧证回收：比如A已经有一本《操作系统》的许可证，现在要把你的《数据库原理》许可证转让给A。
 //  1. 先处理A手里的旧许可证（this原来的资源）：如果A原来的许可证有效，先调用Drop()释放（比如把《操作系统》还回去）

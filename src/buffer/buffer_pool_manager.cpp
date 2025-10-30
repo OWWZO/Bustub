@@ -11,16 +11,16 @@
 //===----------------------------------------------------------------------===//
 
 #include "buffer/buffer_pool_manager.h"
-#include "buffer/arc_replacer.h"
-#include "common/config.h"
-#include "common/macros.h"
-#include "storage/disk/disk_scheduler.h"
-#include "storage/page/page_guard.h"
 #include <algorithm>
 #include <future>
 #include <memory>
 #include <optional>
 #include <utility>
+#include "buffer/arc_replacer.h"
+#include "common/config.h"
+#include "common/macros.h"
+#include "storage/disk/disk_scheduler.h"
+#include "storage/page/page_guard.h"
 
 namespace bustub {
 /**
@@ -33,10 +33,7 @@ namespace bustub {
  * @param frame_id The frame ID / index of the frame we are creating a header
  * for.
  */
-FrameHeader::FrameHeader(frame_id_t frame_id)
-  : frame_id_(frame_id), data_(BUSTUB_PAGE_SIZE, 0) {
-  Reset();
-}
+FrameHeader::FrameHeader(frame_id_t frame_id) : frame_id_(frame_id), data_(BUSTUB_PAGE_SIZE, 0) { Reset(); }
 
 /**
  * @brief Get a raw const pointer to the frame's data.
@@ -61,10 +58,9 @@ void FrameHeader::Reset() {
   is_dirty_ = false;
 }
 
-BufferPoolManager::BufferPoolManager(size_t num_frames,
-                                     DiskManager *disk_manager,
-                                     LogManager *log_manager)
-  : num_frames_(num_frames), next_page_id_(0),
+BufferPoolManager::BufferPoolManager(size_t num_frames, DiskManager *disk_manager, LogManager *log_manager)
+  : num_frames_(num_frames),
+    next_page_id_(0),
     bpm_latch_(std::make_shared<std::mutex>()),
     replacer_(std::make_shared<ArcReplacer>(num_frames)),
     disk_scheduler_(std::make_shared<DiskScheduler>(disk_manager)),
@@ -228,9 +224,7 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
 “写锁”，保证数据不乱）。 特殊情况：没地方放相册了：
 如果客厅桌子、沙发、椅子全摆满了东西（内存完全没空闲），实在腾不出地方放相册，那你就没法抱相册出来改了（对应返回
 “std::nullopt”，表示内存不够没法操作）*/
-auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
-                                         AccessType access_type)
-  -> std::optional<WritePageGuard> {
+auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
   std::unique_lock lock(*bpm_latch_);
   if (page_table_.find(page_id) != page_table_.end()) {
     for (auto &item : frames_) {
@@ -244,12 +238,11 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
     auto temp_lock = bpm_latch_;
     lock.unlock();
     return std::make_optional(
-        WritePageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_,
-                       temp_lock, disk_scheduler_));
+        WritePageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, temp_lock, disk_scheduler_));
   }
   if (!free_frames_.empty() && NewPageById(page_id)) {
     auto data = GetFrameById(page_table_[page_id])->data_.data();
-    if (!data) {
+    if (data == nullptr) {
       return std::nullopt;
     }
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
@@ -272,8 +265,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
     auto temp_lock = bpm_latch_;
     lock.unlock();
     return std::make_optional(
-        WritePageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_,
-                       temp_lock, disk_scheduler_));
+        WritePageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, temp_lock, disk_scheduler_));
   }
 
   auto frame_id = replacer_->Evict();
@@ -289,7 +281,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
     frame_ptr->page_id_ = page_id;
 
     auto data = frame_ptr->data_.data();
-    if (!data) {
+    if (data == nullptr) {
       return std::nullopt;
     }
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
@@ -307,9 +299,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
 
     auto temp_lock = bpm_latch_;
     lock.unlock();
-    return std::make_optional(
-        WritePageGuard(page_id, frame_ptr, replacer_,
-                       temp_lock, disk_scheduler_));
+    return std::make_optional(WritePageGuard(page_id, frame_ptr, replacer_, temp_lock, disk_scheduler_));
   }
 
   return std::nullopt;
@@ -331,9 +321,7 @@ TODO (P1)：添加实现。
 一个可选的闩锁保护，若没有更多空闲帧（内存不足），则返回std::nullopt；
 否则，返回一个ReadPageGuard，确保对页数据的共享和只读访问。
 */
-auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
-                                        AccessType access_type)
-  -> std::optional<ReadPageGuard> {
+auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_type) -> std::optional<ReadPageGuard> {
   std::unique_lock lock(*bpm_latch_);
   if (page_id == -1) {
     return std::nullopt;
@@ -351,12 +339,11 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
     auto temp_lock = bpm_latch_;
     lock.unlock();
     return std::make_optional(
-        ReadPageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_,
-                      temp_lock, disk_scheduler_));
+        ReadPageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, temp_lock, disk_scheduler_));
   }
   if (!free_frames_.empty() && NewPageById(page_id)) {
     auto data = GetFrameById(page_table_[page_id])->data_.data();
-    if (!data) {
+    if (data == nullptr) {
       return std::nullopt;
     }
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
@@ -379,8 +366,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
     auto temp_lock = bpm_latch_;
     lock.unlock();
     return std::make_optional(
-        ReadPageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_,
-                      temp_lock, disk_scheduler_));
+        ReadPageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, temp_lock, disk_scheduler_));
   }
 
   auto frame_id = replacer_->Evict();
@@ -396,7 +382,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
     frame_ptr->page_id_ = page_id;
 
     auto data = frame_ptr->data_.data();
-    if (!data) {
+    if (data == nullptr) {
       return std::nullopt;
     }
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
@@ -415,9 +401,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
 
     auto temp_lock = bpm_latch_;
     lock.unlock();
-    return std::make_optional(
-        ReadPageGuard(page_id, frame_ptr, replacer_,
-                      temp_lock, disk_scheduler_));
+    return std::make_optional(ReadPageGuard(page_id, frame_ptr, replacer_, temp_lock, disk_scheduler_));
   }
 
   return std::nullopt;
@@ -432,13 +416,11 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
 @param access_type 页访问的类型。
 @return WritePageGuard 一个页保护机制，确保对页数据的独占且可修改的访问。
 */
-auto BufferPoolManager::WritePage(page_id_t page_id, AccessType access_type)
-  -> WritePageGuard {
+auto BufferPoolManager::WritePage(page_id_t page_id, AccessType access_type) -> WritePageGuard {
   auto guard_opt = CheckedWritePage(page_id, access_type);
 
   if (!guard_opt.has_value()) {
-    fmt::println(stderr, "\n`CheckedWritePage` failed to bring in page {}\n",
-                 page_id);
+    fmt::println(stderr, "\n`CheckedWritePage` failed to bring in page {}\n", page_id);
     std::abort();
   }
 
@@ -458,13 +440,11 @@ auto BufferPoolManager::WritePage(page_id_t page_id, AccessType access_type)
  * @param access_type 页面访问的类型。
  * @return ReadPageGuard 一个页面保护机制，确保对页面数据的共享和只读访问。
  */
-auto BufferPoolManager::ReadPage(page_id_t page_id, AccessType access_type)
-  -> ReadPageGuard {
+auto BufferPoolManager::ReadPage(page_id_t page_id, AccessType access_type) -> ReadPageGuard {
   auto guard_opt = CheckedReadPage(page_id, access_type);
 
   if (!guard_opt.has_value()) {
-    fmt::println(stderr, "\n`CheckedReadPage` failed to bring in page {}\n",
-                 page_id);
+    fmt::println(stderr, "\n`CheckedReadPage` failed to bring in page {}\n", page_id);
     std::abort();
   }
 
@@ -656,8 +636,7 @@ void BufferPoolManager::FlushAllPages() {
  * @return std::optional<size_t>
  * 如果页面存在，则返回钉住计数；否则，返回`std::nullopt`。
  */
-auto BufferPoolManager::GetPinCount(page_id_t page_id)
-  -> std::optional<size_t> {
+auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> {
   std::unique_lock lock(*bpm_latch_);
   auto it = page_table_.find(page_id);
   if (it == page_table_.end()) {
@@ -673,8 +652,7 @@ auto BufferPoolManager::GetPinCount(page_id_t page_id)
 }
 
 // TODO(wwz): 查找操作替换成辅助函数
-auto BufferPoolManager::GetFrameById(frame_id_t frame_id)
-  -> std::shared_ptr<FrameHeader> {
+auto BufferPoolManager::GetFrameById(frame_id_t frame_id) -> std::shared_ptr<FrameHeader> {
   // 确保已经在内存里
   for (auto &item : frames_) {
     if (item->frame_id_ == frame_id) {
@@ -728,4 +706,4 @@ auto BufferPoolManager::Cut(frame_id_t frame_id) -> bool {
   free_frames_.insert(free_frames_.begin(), frame_id);
   return true;
 }
-} // namespace bustub
+}  // namespace bustub
