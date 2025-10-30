@@ -7,7 +7,6 @@
 #include "storage/disk/disk_scheduler.h"
 
 namespace bustub {
-
 ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                              std::shared_ptr<ArcReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch,
                              std::shared_ptr<DiskScheduler> disk_scheduler)
@@ -299,7 +298,6 @@ void WritePageGuard::Flush() {
  * 顺序很重要：如果先还钥匙再报备改动，会导致无法访问房子数据；如果不还钥匙，中介会以为房子还在租（资源泄漏）。
  */
 void WritePageGuard::Drop() {
-
   // 使用BPM锁保护对frame的修改，防止并发冲突
   if (bpm_latch_) {
     std::lock_guard<std::mutex> bpm_lock(*bpm_latch_);

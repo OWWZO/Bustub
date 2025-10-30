@@ -259,7 +259,7 @@ public:
 
   auto NewPageById(page_id_t page_id) -> bool;
 
-  bool Cut(frame_id_t frame_id);
+  auto Cut(frame_id_t frame_id) -> bool;
 
 private:
   /** @brief 缓冲池的总帧数（内存中能同时存储的页数量，类似图书馆的总书架数） */

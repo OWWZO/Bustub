@@ -17,9 +17,7 @@
 #include "storage/disk/disk_scheduler.h"
 #include "storage/page/page_guard.h"
 #include <algorithm>
-#include <any>
 #include <future>
-#include <iostream>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -169,13 +167,13 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   }
   auto frame = page_table_[page_id];
 
-  for (auto it = frames_.begin(); it != frames_.end(); it++) {
-    if (frame == (*it)->frame_id_) {
-      if (0 != (*it)->pin_count_.load()) {
+  for (auto &it : frames_) {
+    if (frame == it->frame_id_) {
+      if (0 != it->pin_count_.load()) {
         return false;
       }
-      (*it)->Reset();
-      (*it)->page_id_ = INVALID_PAGE_ID;
+      it->Reset();
+      it->page_id_ = INVALID_PAGE_ID;
 
       free_frames_.push_front(frame);
       break;
@@ -720,10 +718,10 @@ auto BufferPoolManager::Cut(frame_id_t frame_id) -> bool {
     }
     it++;
   }
-  for (auto it = frames_.begin(); it != frames_.end(); it++) {
-    if ((*it)->frame_id_ == frame_id) {
-      (*it)->Reset();
-      (*it)->page_id_ = INVALID_PAGE_ID;
+  for (auto &frame : frames_) {
+    if (frame->frame_id_ == frame_id) {
+      frame->Reset();
+      frame->page_id_ = INVALID_PAGE_ID;
       break;
     }
   }

@@ -16,13 +16,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
-#include <iostream>
-#include <iterator>
 #include <list>
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <vector>
 #include "buffer/buffer_pool_manager.h"
 #include "common/config.h"
 #include "storage/index/index_iterator.h"
@@ -63,7 +60,7 @@ auto ArcReplacer::Evict() -> std::optional<frame_id_t> {
 
   // 选result的策略代码 可以选出哪个最要被淘汰
   frame_id_t result = -1;
-  if (mru_.size() < mru_target_size_ && !evictable_mfu.empty()) {
+  if ((mru_.size() < mru_target_size_ && !evictable_mfu.empty()) || evictable_mru.empty()) {
     // MRU实际大小 < 目标大小：优先从MFU淘汰
     result = evictable_mfu.front();
     evictable_mfu.pop_front();
@@ -71,10 +68,6 @@ auto ArcReplacer::Evict() -> std::optional<frame_id_t> {
     // MRU实际大小 >= 目标大小：优先从MRU淘汰
     result = evictable_mru.front();
     evictable_mru.pop_front();
-  } else if (!evictable_mfu.empty()) {
-    // MRU列表为空，从MFU淘汰
-    result = evictable_mfu.front();
-    evictable_mfu.pop_front();
   } else {
     return std::nullopt;
   }
@@ -229,7 +222,7 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
         mru_target_size_ -= 1;
       }
     } else {
-      if (mru_target_size_ - std::floor(static_cast<float>(mru_ghost_.size()) / static_cast<float>(mfu_ghost_.size()))
+      if (mru_target_size_ - (std::floor(static_cast<float>(mru_ghost_.size()) / static_cast<float>(mfu_ghost_.size())))
           >= 0) {
         mru_target_size_ -= std::floor(static_cast<float>(mru_ghost_.size()) / static_cast<float>(mfu_ghost_.size()));
       } else {
