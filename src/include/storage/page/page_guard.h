@@ -212,7 +212,7 @@ public:
   /** @brief 禁用拷贝赋值。
    * 类比：不能把修改权限复制给别人，只能转移权限。 */
   auto operator=(const WritePageGuard &) -> WritePageGuard & = delete;
-  /** @brief 移动构造函数（带 noexcept 保证）。
+  /** @brief 移动构造函数
    * 类比：你把"修改借阅证"转给同学，转完后你不能改了，同学可以改。 */
   WritePageGuard(WritePageGuard &&that) noexcept;
   /** @brief 移动赋值运算符（带 noexcept 保证）。

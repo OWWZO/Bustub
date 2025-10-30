@@ -7,15 +7,6 @@
 #include "storage/disk/disk_scheduler.h"
 
 namespace bustub {
-// 现实逻辑类比：
-// 相当于图书馆的"图书阅读许可证"创建过程：
-// 1. page_id 是你要借的书的唯一编号（比如《数据库原理》的编号是10086）
-// 2. frame 是这本书实际存放的"书架格子"（包含了书的实体内容）
-// 3. replacer 是图书馆的"图书整理员"（负责管理书架格子的占用/释放，比如旧书移到仓库）
-// 4. bpm_latch 是图书馆的"前台取书锁"（确保同一时间只有一个人办理该书的借阅手续，避免冲突）
-// 5. disk_scheduler 是图书馆的"仓库管理员"（如果书不在书架上，需要从仓库调过来）
-// 构造函数的作用：拿着图书编号，找到对应的书架格子，让整理员、前台、仓库管理员做好准备，
-// 最终给你发一张"阅读许可证"，只有有这张证，你才能读这本书，且保证阅读过程中数据不被篡改。
 
 ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                              std::shared_ptr<ArcReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch,
@@ -37,7 +28,9 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
 // 关键约束：不能同时有两张有效许可证对应同一本书，否则会出现"两个人同时改同一本书"的冲突（双重释放/锁竞争）
 // 类比场景：你把《数据库原理》的阅读许可证给A后，你不能再去书架拿这本书，只有A能拿，且A的使用权限和你原来的一致
 
-ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept { *this = std::move(that); }
+ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {
+  *this = std::move(that);
+}
 
 // 相当于"图书阅读许可证"的二次转让+旧证回收：比如A已经有一本《操作系统》的许可证，现在要把你的《数据库原理》许可证转让给A。
 //  1. 先处理A手里的旧许可证（this原来的资源）：如果A原来的许可证有效，先调用Drop()释放（比如把《操作系统》还回去）
@@ -53,8 +46,13 @@ auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & 
   this->disk_scheduler_ = std::move(that.disk_scheduler_);
   this->replacer_ = std::move(that.replacer_);
   this->lock_ = std::move(that.lock_); // 关键修复：移动锁对象
-  this->page_id_ = that.page_id_; // TODO(wwz) 这个资源转移之后 被转移的对象要怎么处理？？
+  this->page_id_ = that.page_id_;
   this->is_valid_ = that.is_valid_;
+  // 需求2：原对象（that）失效
+  that.page_id_ = -1; // 置为无效ID
+  that.frame_ = nullptr; // 断开与原frame的关联
+  that.replacer_ = nullptr; // 断开与原replacer的关联
+  that.is_valid_ = false; // 标记原许可证无效
   return *this;
 }
 
@@ -104,8 +102,7 @@ void ReadPageGuard::Flush() {
   std::unique_lock lock(*bpm_latch_);
   if (IsDirty()) {
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
-    auto task = std::make_optional(DiskRequest(true, frame_->data_.data(), page_id_, std::move(promise)));
-    // 3. 传递左值引用给Write函数
+    auto task = std::make_optional(DiskRequest(true, (*frame_).GetDataMut(), page_id_, std::move(promise)));
     disk_scheduler_->Write(task);
     frame_->is_dirty_ = false;
   }
@@ -195,6 +192,11 @@ auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard
   this->lock_ = std::move(that.lock_); // 关键修复：移动锁对象
   this->page_id_ = that.page_id_; // TODO(wwz) 这个资源转移之后 被转移的对象要怎么处理？？
   this->is_valid_ = that.is_valid_;
+  // 需求2：原对象（that）失效
+  that.page_id_ = -1; // 置为无效ID
+  that.frame_ = nullptr; // 断开与原frame的关联
+  that.replacer_ = nullptr; // 断开与原replacer的关联
+  that.is_valid_ = false; // 标记原许可证无效
   return *this;
 }
 
@@ -244,6 +246,7 @@ auto WritePageGuard::GetDataMut() -> char * {
   // 断言：无效守卫不能修改数据（作废的合同没有修改房子的权限）
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid write guard");
   // 通过frame指针获取页面数据的可写地址（GetDataMut()是"获取修改权限"）
+  frame_->is_dirty_ = true;
   return frame_->GetDataMut();
 }
 
@@ -278,9 +281,9 @@ void WritePageGuard::Flush() {
   std::unique_lock lock(*bpm_latch_);
   if (IsDirty()) {
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
-    auto task = std::make_optional(DiskRequest(true, frame_->data_.data(), page_id_, std::move(promise)));
+    auto task = std::make_optional(DiskRequest(true, (*frame_).GetDataMut(), page_id_, std::move(promise)));
     // 3. 传递左值引用给Write函数
-    disk_scheduler_->Write(task);//!!!加get看看？？
+    disk_scheduler_->Write(task);
     frame_->is_dirty_ = false;
   }
 }
@@ -360,7 +363,6 @@ WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> f
     bpm_latch_(std::move(bpm_latch)),
     disk_scheduler_(std::move(disk_scheduler)) {
   lock_ = std::unique_lock<std::shared_mutex>(frame_->rwlatch_);
-  frame_->is_dirty_ = true;
   is_valid_ = true;
 }
 } // namespace bustub
