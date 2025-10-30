@@ -899,7 +899,7 @@ TEST(BufferPoolManagerTest, IsDirtyFieldExceptionHandlingTest) {
     }
   }
 
-  // 最终验证数据一致性
+  // 最终验证
   {
     auto read_guard = bpm->ReadPage(pid);
     EXPECT_TRUE(strstr(read_guard.GetData(), "Exception test") != nullptr);
