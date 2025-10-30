@@ -26,8 +26,6 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
     bpm_latch_(std::move(bpm_latch)),
     disk_scheduler_(std::move(disk_scheduler)) {
   lock_ = std::shared_lock<std::shared_mutex>(frame_->rwlatch_);
-  replacer_->RecordAccess(frame_->frame_id_, page_id);
-
   is_valid_ = true;
 }
 
@@ -103,9 +101,10 @@ auto ReadPageGuard::IsDirty() const -> bool {
 }
 
 void ReadPageGuard::Flush() {
+  std::unique_lock lock(*bpm_latch_);
   if (IsDirty()) {
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
-    auto task = std::make_optional(DiskRequest(false, frame_->data_.data(), page_id_, std::move(promise)));
+    auto task = std::make_optional(DiskRequest(true, frame_->data_.data(), page_id_, std::move(promise)));
     // 3. 传递左值引用给Write函数
     disk_scheduler_->Write(task);
     frame_->is_dirty_ = false;
@@ -114,10 +113,6 @@ void ReadPageGuard::Flush() {
 
 void ReadPageGuard::Drop() {
   // 安全释放锁：检查是否持有锁，如果持有则释放
-  if (lock_.owns_lock()) {
-    lock_.unlock();
-  }
-
   // 使用BPM锁保护对frame的修改，防止并发冲突
   if (bpm_latch_) {
     std::lock_guard<std::mutex> bpm_lock(*bpm_latch_);
@@ -129,6 +124,9 @@ void ReadPageGuard::Drop() {
     }
   }
   is_valid_ = false;
+  if (lock_.owns_lock()) {
+    lock_.unlock();
+  }
 }
 
 /** @brief The destructor for `ReadPageGuard`. This destructor simply calls `Drop()`. */
@@ -277,11 +275,14 @@ auto WritePageGuard::IsDirty() const -> bool {
  * TODO(P1): Add implementation.
  */
 void WritePageGuard::Flush() {
-  std::promise<bool> promise = disk_scheduler_->CreatePromise();
-  auto task = std::make_optional(DiskRequest(false, frame_->data_.data(), page_id_, std::move(promise)));
-  // 3. 传递左值引用给Write函数
-  disk_scheduler_->Write(task);
-  frame_->is_dirty_=false;
+  std::unique_lock lock(*bpm_latch_);
+  if (IsDirty()) {
+    std::promise<bool> promise = disk_scheduler_->CreatePromise();
+    auto task = std::make_optional(DiskRequest(true, frame_->data_.data(), page_id_, std::move(promise)));
+    // 3. 传递左值引用给Write函数
+    disk_scheduler_->Write(task);//!!!加get看看？？
+    frame_->is_dirty_ = false;
+  }
 }
 
 /*
@@ -295,9 +296,7 @@ void WritePageGuard::Flush() {
  * 顺序很重要：如果先还钥匙再报备改动，会导致无法访问房子数据；如果不还钥匙，中介会以为房子还在租（资源泄漏）。
  */
 void WritePageGuard::Drop() {
-  if (lock_.owns_lock()) {
-    lock_.unlock();
-  }
+
   // 使用BPM锁保护对frame的修改，防止并发冲突
   if (bpm_latch_) {
     std::lock_guard<std::mutex> bpm_lock(*bpm_latch_);
@@ -309,6 +308,9 @@ void WritePageGuard::Drop() {
     }
   }
   is_valid_ = false;
+  if (lock_.owns_lock()) {
+    lock_.unlock();
+  }
 }
 
 WritePageGuard::~WritePageGuard() { Drop(); }
@@ -358,8 +360,7 @@ WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> f
     bpm_latch_(std::move(bpm_latch)),
     disk_scheduler_(std::move(disk_scheduler)) {
   lock_ = std::unique_lock<std::shared_mutex>(frame_->rwlatch_);
-  frame_->is_dirty_=true;
-  replacer_->RecordAccess(frame_->frame_id_, page_id);
+  frame_->is_dirty_ = true;
   is_valid_ = true;
 }
 } // namespace bustub

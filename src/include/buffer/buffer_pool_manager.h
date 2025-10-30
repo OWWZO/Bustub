@@ -71,7 +71,7 @@ private:
    * 类比现实：读者只能看书架上的书（不能改），所以管理员给一个"只读版本"的书内容指针
    * @return 指向帧数据的const char*（不能通过该指针修改数据）
    */
-   auto GetData() const -> const char *;
+  auto GetData() const -> const char *;
 
   /**
    * @brief 获取帧数据的可修改指针
@@ -87,6 +87,7 @@ private:
    */
   void Reset();
   /** @brief 该帧头对应的帧ID（唯一标识，类似图书馆书架的编号） */
+
   const frame_id_t frame_id_;
 
   page_id_t page_id_;

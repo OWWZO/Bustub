@@ -36,7 +36,7 @@ namespace bustub {
  * for.
  */
 FrameHeader::FrameHeader(frame_id_t frame_id)
-    : frame_id_(frame_id), data_(BUSTUB_PAGE_SIZE, 0) {
+  : frame_id_(frame_id), data_(BUSTUB_PAGE_SIZE, 0) {
   Reset();
 }
 
@@ -66,11 +66,11 @@ void FrameHeader::Reset() {
 BufferPoolManager::BufferPoolManager(size_t num_frames,
                                      DiskManager *disk_manager,
                                      LogManager *log_manager)
-    : num_frames_(num_frames), next_page_id_(0),
-      bpm_latch_(std::make_shared<std::mutex>()),
-      replacer_(std::make_shared<ArcReplacer>(num_frames)),
-      disk_scheduler_(std::make_shared<DiskScheduler>(disk_manager)),
-      log_manager_(log_manager) {
+  : num_frames_(num_frames), next_page_id_(0),
+    bpm_latch_(std::make_shared<std::mutex>()),
+    replacer_(std::make_shared<ArcReplacer>(num_frames)),
+    disk_scheduler_(std::make_shared<DiskScheduler>(disk_manager)),
+    log_manager_(log_manager) {
   // Not strictly necessary...
   std::scoped_lock latch(*bpm_latch_);
 
@@ -232,7 +232,7 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
 “std::nullopt”，表示内存不够没法操作）*/
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
                                          AccessType access_type)
-    -> std::optional<WritePageGuard> {
+  -> std::optional<WritePageGuard> {
   std::unique_lock lock(*bpm_latch_);
   if (page_table_.find(page_id) != page_table_.end()) {
     for (auto &item : frames_) {
@@ -242,7 +242,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
       }
     }
     replacer_->RecordAccess(page_table_[page_id], page_id);
-    replacer_->SetEvictable(page_table_[page_id],false);
+    replacer_->SetEvictable(page_table_[page_id], false);
     auto temp_lock = bpm_latch_;
     lock.unlock();
     return std::make_optional(
@@ -255,8 +255,8 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
       return std::nullopt;
     }
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
-    auto future=promise.get_future();
-    auto task =DiskRequest(false, data, page_id, std::move(promise));
+    auto future = promise.get_future();
+    auto task = DiskRequest(false, data, page_id, std::move(promise));
     std::vector<DiskRequest> v;
     v.push_back(std::move(task));
     disk_scheduler_->Schedule(v);
@@ -264,7 +264,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
       return std::nullopt;
     }
     replacer_->RecordAccess(page_table_[page_id], page_id);
-    replacer_->SetEvictable(page_table_[page_id],false);
+    replacer_->SetEvictable(page_table_[page_id], false);
     for (auto &item : frames_) {
       if (item->page_id_ == page_id) {
         item->pin_count_.fetch_add(1);
@@ -295,8 +295,8 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
       return std::nullopt;
     }
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
-    auto future=promise.get_future();
-    auto task =DiskRequest(false, data, page_id, std::move(promise));
+    auto future = promise.get_future();
+    auto task = DiskRequest(false, data, page_id, std::move(promise));
     std::vector<DiskRequest> v;
     v.push_back(std::move(task));
     disk_scheduler_->Schedule(v);
@@ -304,7 +304,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id,
       return std::nullopt;
     }
     replacer_->RecordAccess(frame_id.value(), page_id);
-    replacer_->SetEvictable(frame_id.value(),false);
+    replacer_->SetEvictable(frame_id.value(), false);
     frame_ptr->pin_count_.fetch_add(1);
 
     auto temp_lock = bpm_latch_;
@@ -335,14 +335,14 @@ TODO (P1)：添加实现。
 */
 auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
                                         AccessType access_type)
-    -> std::optional<ReadPageGuard> {
+  -> std::optional<ReadPageGuard> {
   std::unique_lock lock(*bpm_latch_);
   if (page_id == -1) {
     return std::nullopt;
   }
   if (page_table_.find(page_id) != page_table_.end()) {
     replacer_->RecordAccess(page_table_[page_id], page_id);
-    replacer_->SetEvictable(page_table_[page_id],false);
+    replacer_->SetEvictable(page_table_[page_id], false);
     for (auto &item : frames_) {
       if (item->page_id_ == page_id) {
         item->pin_count_.fetch_add(1);
@@ -362,7 +362,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
       return std::nullopt;
     }
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
-    auto future=promise.get_future();
+    auto future = promise.get_future();
     auto task = DiskRequest(false, data, page_id, std::move(promise));
     std::vector<DiskRequest> v;
     v.push_back(std::move(task));
@@ -371,7 +371,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
       return std::nullopt;
     }
     replacer_->RecordAccess(page_table_[page_id], page_id);
-    replacer_->SetEvictable(page_table_[page_id],false);
+    replacer_->SetEvictable(page_table_[page_id], false);
     for (auto &item : frames_) {
       if (item->page_id_ == page_id) {
         item->pin_count_.fetch_add(1);
@@ -402,8 +402,8 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
       return std::nullopt;
     }
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
-    auto future=promise.get_future();
-    auto task =DiskRequest(false, data, page_id, std::move(promise));
+    auto future = promise.get_future();
+    auto task = DiskRequest(false, data, page_id, std::move(promise));
 
     std::vector<DiskRequest> v;
     v.push_back(std::move(task));
@@ -412,7 +412,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
       return std::nullopt;
     }
     replacer_->RecordAccess(frame_id.value(), page_id);
-    replacer_->SetEvictable(frame_id.value(),false);
+    replacer_->SetEvictable(frame_id.value(), false);
     frame_ptr->pin_count_.fetch_add(1);
 
     auto temp_lock = bpm_latch_;
@@ -435,7 +435,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id,
 @return WritePageGuard 一个页保护机制，确保对页数据的独占且可修改的访问。
 */
 auto BufferPoolManager::WritePage(page_id_t page_id, AccessType access_type)
-    -> WritePageGuard {
+  -> WritePageGuard {
   auto guard_opt = CheckedWritePage(page_id, access_type);
 
   if (!guard_opt.has_value()) {
@@ -461,7 +461,7 @@ auto BufferPoolManager::WritePage(page_id_t page_id, AccessType access_type)
  * @return ReadPageGuard 一个页面保护机制，确保对页面数据的共享和只读访问。
  */
 auto BufferPoolManager::ReadPage(page_id_t page_id, AccessType access_type)
-    -> ReadPageGuard {
+  -> ReadPageGuard {
   auto guard_opt = CheckedReadPage(page_id, access_type);
 
   if (!guard_opt.has_value()) {
@@ -503,18 +503,17 @@ auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool {
         break;
       }
     }
-      auto data = frame->data_.data();
-
-      std::promise<bool> promise = disk_scheduler_->CreatePromise();
-      auto future=promise.get_future();
-      auto task = DiskRequest(true, data, page_id, std::move(promise));
-      std::vector<DiskRequest> v;
-      v.push_back(std::move(task));
-      disk_scheduler_->Schedule(v);
-      if (!future.get()) {
-        return false;
-      }
-      frame->is_dirty_=false;
+    auto data = frame->data_.data();
+    std::promise<bool> promise = disk_scheduler_->CreatePromise();
+    auto future = promise.get_future();
+    auto task = DiskRequest(true, data, page_id, std::move(promise));
+    std::vector<DiskRequest> v;
+    v.push_back(std::move(task));
+    disk_scheduler_->Schedule(v);
+    if (!future.get()) {
+      return false;
+    }
+    frame->is_dirty_ = false;
     return true;
   }
   return false;
@@ -550,18 +549,18 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
         break;
       }
     }
+    std::unique_lock<std::shared_mutex> lock1(frame->rwlatch_);
     auto data = frame->data_.data();
-
     std::promise<bool> promise = disk_scheduler_->CreatePromise();
-    auto future =promise.get_future();
-    auto task =DiskRequest(true, data, page_id, std::move(promise));
+    auto future = promise.get_future();
+    auto task = DiskRequest(true, data, page_id, std::move(promise));
     std::vector<DiskRequest> v;
     v.push_back(std::move(task));
     disk_scheduler_->Schedule(v);
     if (!future.get()) {
       return false;
     }
-    frame->is_dirty_=false;
+    frame->is_dirty_ = false;
     return true;
   }
   return false;
@@ -591,15 +590,14 @@ void BufferPoolManager::FlushAllPagesUnsafe() {
       }
 
       auto data = item->data_.data();
-
       std::promise<bool> promise = disk_scheduler_->CreatePromise();
-      auto future=promise.get_future();
+      auto future = promise.get_future();
       auto task = DiskRequest(true, data, page_id, std::move(promise));
       std::vector<DiskRequest> v;
       v.push_back(std::move(task));
       disk_scheduler_->Schedule(v);
       future.get();
-      item->is_dirty_=false;
+      item->is_dirty_ = false;
     }
   }
 }
@@ -626,17 +624,16 @@ void BufferPoolManager::FlushAllPages() {
           break;
         }
       }
-
+      std::unique_lock<std::shared_mutex> lock1(item->rwlatch_);
       auto data = item->data_.data();
-
       std::promise<bool> promise = disk_scheduler_->CreatePromise();
-      auto future=promise.get_future();
+      auto future = promise.get_future();
       auto task = DiskRequest(true, data, page_id, std::move(promise));
       std::vector<DiskRequest> v;
       v.push_back(std::move(task));
       disk_scheduler_->Schedule(v);
       future.get();
-      item->is_dirty_=false;
+      item->is_dirty_ = false;
     }
   }
 }
@@ -662,7 +659,7 @@ void BufferPoolManager::FlushAllPages() {
  * 如果页面存在，则返回钉住计数；否则，返回`std::nullopt`。
  */
 auto BufferPoolManager::GetPinCount(page_id_t page_id)
-    -> std::optional<size_t> {
+  -> std::optional<size_t> {
   std::unique_lock lock(*bpm_latch_);
   auto it = page_table_.find(page_id);
   if (it == page_table_.end()) {
@@ -679,7 +676,7 @@ auto BufferPoolManager::GetPinCount(page_id_t page_id)
 
 // TODO(wwz): 查找操作替换成辅助函数
 auto BufferPoolManager::GetFrameById(frame_id_t frame_id)
-    -> std::shared_ptr<FrameHeader> {
+  -> std::shared_ptr<FrameHeader> {
   // 确保已经在内存里
   for (auto &item : frames_) {
     if (item->frame_id_ == frame_id) {
@@ -708,10 +705,9 @@ auto BufferPoolManager::NewPageById(page_id_t page_id) -> bool {
 }
 
 auto BufferPoolManager::Cut(frame_id_t frame_id) -> bool {
-  free_frames_.insert(free_frames_.begin(), frame_id);
-
   for (auto it = frames_.begin(); it != frames_.end();) {
     if ((*it)->frame_id_ == frame_id) {
+      std::unique_lock<std::shared_mutex> lock1((*it)->rwlatch_);
       FlushPageUnsafe((*it)->page_id_);
       break;
     }
@@ -731,7 +727,7 @@ auto BufferPoolManager::Cut(frame_id_t frame_id) -> bool {
       break;
     }
   }
-
+  free_frames_.insert(free_frames_.begin(), frame_id);
   return true;
 }
 } // namespace bustub

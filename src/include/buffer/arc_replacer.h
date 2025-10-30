@@ -184,7 +184,7 @@ private:
    * ARC替换器的总容量（对应构造函数的num_frames，即缓存能容纳的最大帧数量）
    * 类似"图书馆的总书架容量"，是mru_和mfu_列表的总大小上限（活跃帧总数不能超过此值）
    */
-   size_t replacer_size_;
+  size_t replacer_size_;
 
   /**
    * 线程互斥锁：保证多线程下对ARC数据结构（list、map）的操作是线程安全的

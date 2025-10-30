@@ -22,7 +22,6 @@
 #include "storage/page/page.h"
 
 namespace bustub {
-
 // 前向声明：避免循环引用，告诉编译器这些类后续会定义
 class BufferPoolManager;
 class FrameHeader;
@@ -49,7 +48,7 @@ class ReadPageGuard {
    * 类比：只有图书馆管理员能发"只读借阅证"，读者自己不能造证。 */
   friend class BufferPoolManager;
 
- public:
+public:
   /**
    * @brief ReadPageGuard的默认构造函数。
    *
@@ -90,6 +89,7 @@ class ReadPageGuard {
   auto As() const -> const T * {
     return reinterpret_cast<const T *>(GetData());
   }
+
   /** @brief 判断当前页是否为"脏页"（数据被修改过但未写入磁盘）。
    * 类比：检查你借的书是否有涂改痕迹（脏页）——只读证不能改，但可能之前有人用写证改过。 */
   auto IsDirty() const -> bool;
@@ -106,7 +106,7 @@ class ReadPageGuard {
    * 类比：借阅证到期自动失效，书被收回，其他读者可以申请借阅。 */
   ~ReadPageGuard();
 
- private:
+private:
   /** @brief 私有构造函数：只有缓冲池管理器能创建有效ReadPageGuard。
    * 类比：管理员在后台创建借阅证，读者看不到创建过程，只能通过前台领取。
    * @param page_id 要保护的页的ID（图书编号）
@@ -191,7 +191,7 @@ class WritePageGuard {
    * 类比：只有图书馆管理员能发"修改借阅证"，读者自己不能造证。 */
   friend class BufferPoolManager;
 
- public:
+public:
   /**
    * @brief WritePageGuard的默认构造函数。
    *
@@ -230,6 +230,7 @@ class WritePageGuard {
   auto As() const -> const T * {
     return reinterpret_cast<const T *>(GetData());
   }
+
   /** @brief 获取页的可修改数据指针（写操作核心）。
    * 类比：持有修改证时，拿到书的"可涂改版本"，可以直接在上面写字。 */
   auto GetDataMut() -> char *;
@@ -239,10 +240,11 @@ class WritePageGuard {
   auto AsMut() -> T * {
     return reinterpret_cast<T *>(GetDataMut());
   }
+
   /** @brief 判断当前页是否为"脏页"（数据被修改过但未写入磁盘）。
    * 类比：检查你修改过的书是否有未存档的涂改痕迹。 */
   auto IsDirty() const -> bool;
-  
+
   /** @brief 将页的脏数据刷写到磁盘（若为脏页）。
    * 类比：把你修改后的内容抄录到图书馆的存档本里，确保修改不会丢失。 */
   void Flush();
@@ -254,7 +256,7 @@ class WritePageGuard {
    * 类比：修改证到期自动失效，书被收回并检查是否需要存档，其他人可以申请借阅。 */
   ~WritePageGuard();
 
- private:
+private:
   /** @brief 私有构造函数：只有缓冲池管理器能创建有效WritePageGuard。
    * 类比：管理员在后台创建修改证，读者只能通过前台领取，看不到创建过程。
    * 参数含义同ReadPageGuard的私有构造函数，区别是该构造函数会获取页的写锁（独占锁）。 */
@@ -300,5 +302,4 @@ class WritePageGuard {
   std::unique_lock 类型，并使用它来实现闭锁机制，而不是手动调用 lock 和 unlock。
    */
 };
-
-}  // namespace bustub
+} // namespace bustub
