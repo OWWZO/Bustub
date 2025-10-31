@@ -17,40 +17,34 @@
 #include "common/macros.h"
 #include "storage/disk/disk_manager.h"
 
-namespace bustub
-{
-    DiskScheduler::DiskScheduler(DiskManager* disk_manager) : disk_manager_(disk_manager)
-    {
-        // Spawn the background thread
-        background_thread_.emplace([&] { StartWorkerThread(); });
-    }
+namespace bustub {
+DiskScheduler::DiskScheduler(DiskManager *disk_manager) : disk_manager_(disk_manager) {
+  // Spawn the background thread
+  background_thread_.emplace([&] { StartWorkerThread(); });
+}
 
-    DiskScheduler::~DiskScheduler()
-    {
-        // Put a `std::nullopt` in the queue to signal to exit the loop
-        request_queue_.Put(std::nullopt);
-        if (background_thread_.has_value())
-        {
-            background_thread_->join();
-        }
-    }
+DiskScheduler::~DiskScheduler() {
+  // Put a `std::nullopt` in the queue to signal to exit the loop
+  request_queue_.Put(std::nullopt);
+  if (background_thread_.has_value()) {
+    background_thread_->join();
+  }
+}
 
-    /**
+/**
  * TODO(P1): Add implementation
  *
  * @brief Schedules a request for the DiskManager to execute.
  *
  * @param requests The requests to be scheduled.
  */
-    void DiskScheduler::Schedule(std::vector<DiskRequest>& requests)
-    {
-        for (auto& item : requests)
-        {
-            request_queue_.Put(std::make_optional(std::move(item)));
-        }
-    }
+void DiskScheduler::Schedule(std::vector<DiskRequest> &requests) {
+  for (auto &item : requests) {
+    request_queue_.Put(std::make_optional(std::move(item)));
+  }
+}
 
-    /**
+/**
  * TODO(P1): Add implementation
  *
  * @brief Background worker thread function that processes scheduled requests.
@@ -58,31 +52,22 @@ namespace bustub
  * The background thread needs to process requests while the DiskScheduler exists, i.e., this function should not
  * return until ~DiskScheduler() is called. At that point you need to make sure that the function does return.
  */
-    void DiskScheduler::StartWorkerThread()
-    {
-        while (true)
-        {
-            auto task = request_queue_.Get();
-            if (task == std::nullopt)
-            {
-                return;
-            }
-            if (task->is_write_)
-            {
-                Write(task);
-            }
-            else
-            {
-                Read(task);
-            }
-            task->callback_.set_value(true);
-        }
+void DiskScheduler::StartWorkerThread() {
+  while (true) {
+    auto task = request_queue_.Get();
+    if (task == std::nullopt) {
+      return;
     }
-
-    void DiskScheduler::Write(std::optional<DiskRequest>& task)
-    {
-        disk_manager_->WritePage(task->page_id_, task->data_);
+    if (task->is_write_) {
+      Write(task);
+    } else {
+      Read(task);
     }
+    task->callback_.set_value(true);
+  }
+}
 
-    void DiskScheduler::Read(std::optional<DiskRequest>& task) { disk_manager_->ReadPage(task->page_id_, task->data_); }
-} // namespace bustub
+void DiskScheduler::Write(std::optional<DiskRequest> &task) { disk_manager_->WritePage(task->page_id_, task->data_); }
+
+void DiskScheduler::Read(std::optional<DiskRequest> &task) { disk_manager_->ReadPage(task->page_id_, task->data_); }
+}  // namespace bustub

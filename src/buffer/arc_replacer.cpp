@@ -32,8 +32,7 @@ namespace bustub {
  * @brief a new ArcReplacer, with lists initialized to be empty and target size to 0
  * @param num_frames the maximum number of frames the ArcReplacer will be required to cache
  */
-ArcReplacer::ArcReplacer(size_t num_frames) : replacer_size_(num_frames) {
-}
+ArcReplacer::ArcReplacer(size_t num_frames) : replacer_size_(num_frames) {}
 
 auto ArcReplacer::Evict() -> std::optional<frame_id_t> {
   std::unique_lock lock(latch_);
@@ -97,7 +96,7 @@ auto ArcReplacer::Evict() -> std::optional<frame_id_t> {
   // alive映射区删除 然后ghost区相对应的加入
   for (auto item = alive_map_.begin(); item != alive_map_.end();) {
     if (item->first == result) {
-      ghost_map_[item->second->page_id_] = item->second; // 建立page_id 和帧状态的映射
+      ghost_map_[item->second->page_id_] = item->second;  // 建立page_id 和帧状态的映射
       if (item->second->arc_status_ == ArcStatus::MFU) {
         item->second->arc_status_ = ArcStatus::MFU_GHOST;
       } else {
@@ -122,7 +121,7 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
     // 处理mru mfu总数超的情况
     if (count == replacer_size_) {
       lock.unlock();
-      auto id = Evict(); // 选出一个来淘汰
+      auto id = Evict();  // 选出一个来淘汰
       lock.lock();
       if (!id.has_value()) {
         // 处理淘汰不了情况
@@ -222,7 +221,7 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
       }
     } else {
       if (mru_target_size_ -
-          (std::floor(static_cast<float>(mru_ghost_.size()) / static_cast<float>(mfu_ghost_.size()))) >=
+              (std::floor(static_cast<float>(mru_ghost_.size()) / static_cast<float>(mfu_ghost_.size()))) >=
           0) {
         mru_target_size_ -= std::floor(static_cast<float>(mru_ghost_.size()) / static_cast<float>(mfu_ghost_.size()));
       } else {

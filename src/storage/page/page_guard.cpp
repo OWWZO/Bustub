@@ -10,11 +10,11 @@ namespace bustub {
 ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                              std::shared_ptr<ArcReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch,
                              std::shared_ptr<DiskScheduler> disk_scheduler)
-  : page_id_(page_id),
-    frame_(std::move(frame)),
-    replacer_(std::move(replacer)),
-    bpm_latch_(std::move(bpm_latch)),
-    disk_scheduler_(std::move(disk_scheduler)) {
+    : page_id_(page_id),
+      frame_(std::move(frame)),
+      replacer_(std::move(replacer)),
+      bpm_latch_(std::move(bpm_latch)),
+      disk_scheduler_(std::move(disk_scheduler)) {
   lock_ = std::shared_lock<std::shared_mutex>(frame_->rwlatch_);
   is_valid_ = true;
 }
@@ -42,14 +42,14 @@ auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & 
   this->frame_ = std::move(that.frame_);
   this->disk_scheduler_ = std::move(that.disk_scheduler_);
   this->replacer_ = std::move(that.replacer_);
-  this->lock_ = std::move(that.lock_); // 关键修复：移动锁对象
+  this->lock_ = std::move(that.lock_);  // 关键修复：移动锁对象
   this->page_id_ = that.page_id_;
   this->is_valid_ = that.is_valid_;
   // 需求2：原对象（that）失效
-  that.page_id_ = -1; // 置为无效ID
-  that.frame_ = nullptr; // 断开与原frame的关联
-  that.replacer_ = nullptr; // 断开与原replacer的关联
-  that.is_valid_ = false; // 标记原许可证无效
+  that.page_id_ = -1;        // 置为无效ID
+  that.frame_ = nullptr;     // 断开与原frame的关联
+  that.replacer_ = nullptr;  // 断开与原replacer的关联
+  that.is_valid_ = false;    // 标记原许可证无效
   return *this;
 }
 
@@ -63,8 +63,8 @@ auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & 
 // 输出：书的编号（page_id_）
  */
 auto ReadPageGuard::GetPageId() const -> page_id_t {
-  BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard"); // 断言：许可证必须有效，否则报错
-  return page_id_; // 返回当前保护的页面ID（书的编号）
+  BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard");  // 断言：许可证必须有效，否则报错
+  return page_id_;                                                 // 返回当前保护的页面ID（书的编号）
 }
 
 /**
@@ -78,8 +78,8 @@ auto ReadPageGuard::GetPageId() const -> page_id_t {
 // 类比场景：有《数据库原理》的阅读许可证，才能翻开书看内容，但不能用笔在书上写字
  */
 auto ReadPageGuard::GetData() const -> const char * {
-  BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard"); // 断言：许可证必须有效
-  return frame_->GetData(); // 从frame中获取只读数据指针（书的内容）
+  BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard");  // 断言：许可证必须有效
+  return frame_->GetData();                                        // 从frame中获取只读数据指针（书的内容）
 }
 
 /**
@@ -91,8 +91,8 @@ auto ReadPageGuard::GetData() const -> const char * {
 // 类比场景：你借《数据库原理》时，检查书里是否有别人没清理的笔记（dirty=true），还是干净的（dirty=false）
  */
 auto ReadPageGuard::IsDirty() const -> bool {
-  BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard"); // 断言：许可证必须有效
-  return frame_->is_dirty_; // 返回页面是否为"脏页"（被修改未刷盘）
+  BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard");  // 断言：许可证必须有效
+  return frame_->is_dirty_;                                        // 返回页面是否为"脏页"（被修改未刷盘）
 }
 
 void ReadPageGuard::Flush() {
@@ -186,14 +186,14 @@ auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard
   this->frame_ = std::move(that.frame_);
   this->disk_scheduler_ = std::move(that.disk_scheduler_);
   this->replacer_ = std::move(that.replacer_);
-  this->lock_ = std::move(that.lock_); // 关键修复：移动锁对象
-  this->page_id_ = that.page_id_; // TODO(wwz) 这个资源转移之后 被转移的对象要怎么处理？？
+  this->lock_ = std::move(that.lock_);  // 关键修复：移动锁对象
+  this->page_id_ = that.page_id_;       // TODO(wwz) 这个资源转移之后 被转移的对象要怎么处理？？
   this->is_valid_ = that.is_valid_;
   // 需求2：原对象（that）失效
-  that.page_id_ = -1; // 置为无效ID
-  that.frame_ = nullptr; // 断开与原frame的关联
-  that.replacer_ = nullptr; // 断开与原replacer的关联
-  that.is_valid_ = false; // 标记原许可证无效
+  that.page_id_ = -1;        // 置为无效ID
+  that.frame_ = nullptr;     // 断开与原frame的关联
+  that.replacer_ = nullptr;  // 断开与原replacer的关联
+  that.is_valid_ = false;    // 标记原许可证无效
   return *this;
 }
 
@@ -209,7 +209,7 @@ auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard
 auto WritePageGuard::GetPageId() const -> page_id_t {
   // 断言：如果当前守卫无效（合同作废），直接触发错误，避免无效操作
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid write guard");
-  return page_id_; // 返回存储的页面ID（门牌号）
+  return page_id_;  // 返回存储的页面ID（门牌号）
 }
 
 /**
@@ -353,12 +353,12 @@ WritePageGuard::~WritePageGuard() { Drop(); }
 WritePageGuard::WritePageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> frame,
                                std::shared_ptr<ArcReplacer> replacer, std::shared_ptr<std::mutex> bpm_latch,
                                std::shared_ptr<DiskScheduler> disk_scheduler)
-  : page_id_(page_id),
-    frame_(std::move(frame)),
-    replacer_(std::move(replacer)),
-    bpm_latch_(std::move(bpm_latch)),
-    disk_scheduler_(std::move(disk_scheduler)) {
+    : page_id_(page_id),
+      frame_(std::move(frame)),
+      replacer_(std::move(replacer)),
+      bpm_latch_(std::move(bpm_latch)),
+      disk_scheduler_(std::move(disk_scheduler)) {
   lock_ = std::unique_lock<std::shared_mutex>(frame_->rwlatch_);
   is_valid_ = true;
 }
-} // namespace bustub
+}  // namespace bustub

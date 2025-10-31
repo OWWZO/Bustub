@@ -55,15 +55,14 @@ enum class ArcStatus { MRU, MFU, MRU_GHOST, MFU_GHOST };
  *      是否可借出（evictable）、当前在哪个区域（arc_status）
  */
 struct FrameStatus {
-  page_id_t page_id_; // 该帧对应的页ID（类似"书的ISBN号"，唯一标识一本书）
-  frame_id_t frame_id_; // 帧在内存中的ID（类似"书架编号"，唯一标识存放位置）
-  bool evictable_; // 该帧是否可被淘汰（类似"书是否允许借出"，true=可淘汰/可借出）
-  ArcStatus arc_status_; // 该帧在ARC中的状态（属于MRU/MFU还是对应的幽灵区）
+  page_id_t page_id_;     // 该帧对应的页ID（类似"书的ISBN号"，唯一标识一本书）
+  frame_id_t frame_id_;   // 帧在内存中的ID（类似"书架编号"，唯一标识存放位置）
+  bool evictable_;        // 该帧是否可被淘汰（类似"书是否允许借出"，true=可淘汰/可借出）
+  ArcStatus arc_status_;  // 该帧在ARC中的状态（属于MRU/MFU还是对应的幽灵区）
 
   // 构造函数：初始化帧状态（类似"新书入库时填写借阅卡"，明确书的ID、位置、是否可借、放哪个区）
   FrameStatus(page_id_t pid, frame_id_t fid, bool ev, ArcStatus st)
-      : page_id_(pid), frame_id_(fid), evictable_(ev), arc_status_(st) {
-  }
+      : page_id_(pid), frame_id_(fid), evictable_(ev), arc_status_(st) {}
 };
 
 /**
@@ -176,7 +175,7 @@ class ArcReplacer {
    *      剩下的活跃帧放MFU区），根据幽灵帧的访问情况自动更新（类似"图书馆根据读者对新书和热门书的借阅比例，
    *      动态调整新书区和热门区的书架容量"）
    */
-  size_t mru_target_size_{0}; // TODO(wwz) 大小做限制
+  size_t mru_target_size_{0};  // TODO(wwz) 大小做限制
 
   /**
    * ARC替换器的总容量（对应构造函数的num_frames，即缓存能容纳的最大帧数量）

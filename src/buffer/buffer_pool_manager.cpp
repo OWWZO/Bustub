@@ -59,12 +59,12 @@ void FrameHeader::Reset() {
 }
 
 BufferPoolManager::BufferPoolManager(size_t num_frames, DiskManager *disk_manager, LogManager *log_manager)
-  : num_frames_(num_frames),
-    next_page_id_(0),
-    bpm_latch_(std::make_shared<std::mutex>()),
-    replacer_(std::make_shared<ArcReplacer>(num_frames)),
-    disk_scheduler_(std::make_shared<DiskScheduler>(disk_manager)),
-    log_manager_(log_manager) {
+    : num_frames_(num_frames),
+      next_page_id_(0),
+      bpm_latch_(std::make_shared<std::mutex>()),
+      replacer_(std::make_shared<ArcReplacer>(num_frames)),
+      disk_scheduler_(std::make_shared<DiskScheduler>(disk_manager)),
+      log_manager_(log_manager) {
   // Not strictly necessary...
   std::scoped_lock latch(*bpm_latch_);
 
