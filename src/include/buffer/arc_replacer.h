@@ -163,9 +163,20 @@ class ArcReplacer {
   std::unordered_map<page_id_t, std::shared_ptr<FrameStatus>> ghost_map_;
 
   /**
+   * 迭代器映射：用于快速定位list中的元素位置，将O(n)查找优化为O(1)
+   * - mru_iter_map_：frame_id到mru_中迭代器的映射
+   * - mfu_iter_map_：frame_id到mfu_中迭代器的映射
+   * - mru_ghost_iter_map_：page_id到mru_ghost_中迭代器的映射
+   * - mfu_ghost_iter_map_：page_id到mfu_ghost_中迭代器的映射
+   */
+  std::unordered_map<frame_id_t, std::list<frame_id_t>::iterator> mru_iter_map_;
+  std::unordered_map<frame_id_t, std::list<frame_id_t>::iterator> mfu_iter_map_;
+  std::unordered_map<page_id_t, std::list<page_id_t>::iterator> mru_ghost_iter_map_;
+  std::unordered_map<page_id_t, std::list<page_id_t>::iterator> mfu_ghost_iter_map_;
+
+  /**
    * 当前可淘汰的活跃帧数量（即alive_map_中evictable=true的帧总数）
    * 类似"图书馆当前可下架的书的数量"，用于快速返回Size()函数的结果，避免每次遍历列表统计
-   * [[maybe_unused]]：告诉编译器"这个变量可能暂时没被使用，但不要报警告"（学生实现时会用到）
    */
   size_t curr_size_{0};
 

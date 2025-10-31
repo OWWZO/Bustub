@@ -227,14 +227,13 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
   std::unique_lock lock(*bpm_latch_);
   if (page_table_.find(page_id) != page_table_.end()) {
-    for (auto &item : frames_) {
-      if (item->page_id_ == page_id) {
-        item->pin_count_.fetch_add(1);
-        break;
-      }
-    }
-    replacer_->RecordAccess(page_table_[page_id], page_id);
-    replacer_->SetEvictable(page_table_[page_id], false);
+    auto fid = page_table_[page_id];
+    auto frame = GetFrameById(fid);
+    frame->pin_count_.fetch_add(1);
+    // 先增加pin，后与replacer交互，避免窗口期被误认为可淘汰
+    // 先标记不可淘汰，再上报访问，避免访问上报后短暂被认为可淘汰
+    replacer_->SetEvictable(fid, false);
+    replacer_->RecordAccess(fid, page_id);
     auto temp_lock = bpm_latch_;
     lock.unlock();
     return std::make_optional(
@@ -254,13 +253,12 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     if (!future.get()) {
       return std::nullopt;
     }
-    replacer_->RecordAccess(page_table_[page_id], page_id);
-    replacer_->SetEvictable(page_table_[page_id], false);
-    for (auto &item : frames_) {
-      if (item->page_id_ == page_id) {
-        item->pin_count_.fetch_add(1);
-        break;
-      }
+    {
+      auto fid = page_table_[page_id];
+      auto frame = GetFrameById(fid);
+      frame->pin_count_.fetch_add(1);
+      replacer_->SetEvictable(fid, false);
+      replacer_->RecordAccess(fid, page_id);
     }
     auto temp_lock = bpm_latch_;
     lock.unlock();
@@ -293,9 +291,10 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     if (!future.get()) {
       return std::nullopt;
     }
-    replacer_->RecordAccess(frame_id.value(), page_id);
-    replacer_->SetEvictable(frame_id.value(), false);
+    // 先pin，再与replacer交互
     frame_ptr->pin_count_.fetch_add(1);
+    replacer_->SetEvictable(frame_id.value(), false);
+    replacer_->RecordAccess(frame_id.value(), page_id);
 
     auto temp_lock = bpm_latch_;
     lock.unlock();
@@ -327,14 +326,12 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     return std::nullopt;
   }
   if (page_table_.find(page_id) != page_table_.end()) {
-    replacer_->RecordAccess(page_table_[page_id], page_id);
-    replacer_->SetEvictable(page_table_[page_id], false);
-    for (auto &item : frames_) {
-      if (item->page_id_ == page_id) {
-        item->pin_count_.fetch_add(1);
-        break;
-      }
-    }
+    // 先增加pin，后与replacer交互，避免窗口期被误认为可淘汰
+    auto fid = page_table_[page_id];
+    auto frame = GetFrameById(fid);
+    frame->pin_count_.fetch_add(1);
+    replacer_->SetEvictable(fid, false);
+    replacer_->RecordAccess(fid, page_id);
 
     auto temp_lock = bpm_latch_;
     lock.unlock();
@@ -355,13 +352,12 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     if (!future.get()) {
       return std::nullopt;
     }
-    replacer_->RecordAccess(page_table_[page_id], page_id);
-    replacer_->SetEvictable(page_table_[page_id], false);
-    for (auto &item : frames_) {
-      if (item->page_id_ == page_id) {
-        item->pin_count_.fetch_add(1);
-        break;
-      }
+    {
+      auto fid = page_table_[page_id];
+      auto frame = GetFrameById(fid);
+      frame->pin_count_.fetch_add(1);
+      replacer_->SetEvictable(fid, false);
+      replacer_->RecordAccess(fid, page_id);
     }
     auto temp_lock = bpm_latch_;
     lock.unlock();
@@ -395,9 +391,10 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     if (!future.get()) {
       return std::nullopt;
     }
-    replacer_->RecordAccess(frame_id.value(), page_id);
-    replacer_->SetEvictable(frame_id.value(), false);
+    // 先pin，再与replacer交互
     frame_ptr->pin_count_.fetch_add(1);
+    replacer_->SetEvictable(frame_id.value(), false);
+    replacer_->RecordAccess(frame_id.value(), page_id);
 
     auto temp_lock = bpm_latch_;
     lock.unlock();

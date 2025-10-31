@@ -79,7 +79,7 @@ auto ReadPageGuard::GetPageId() const -> page_id_t {
  */
 auto ReadPageGuard::GetData() const -> const char * {
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard");  // 断言：许可证必须有效
-  return frame_->GetData();                                        // 从frame中获取只读数据指针（书的内容）
+  return frame_->GetData();  // 从frame中获取只读数据指针（书的内容）
 }
 
 /**
@@ -92,7 +92,7 @@ auto ReadPageGuard::GetData() const -> const char * {
  */
 auto ReadPageGuard::IsDirty() const -> bool {
   BUSTUB_ENSURE(is_valid_, "tried to use an invalid read guard");  // 断言：许可证必须有效
-  return frame_->is_dirty_;                                        // 返回页面是否为"脏页"（被修改未刷盘）
+  return frame_->is_dirty_;  // 返回页面是否为"脏页"（被修改未刷盘）
 }
 
 void ReadPageGuard::Flush() {
@@ -110,10 +110,13 @@ void ReadPageGuard::Drop() {
   // 使用BPM锁保护对frame的修改，防止并发冲突
   if (bpm_latch_) {
     std::lock_guard<std::mutex> bpm_lock(*bpm_latch_);
-    if (frame_ && frame_->pin_count_.load() != 0) {
-      frame_->pin_count_.fetch_sub(1);
-      if (frame_->pin_count_.load() == 0) {
-        replacer_->SetEvictable(frame_->frame_id_, true);
+    if (frame_) {
+      auto prev = frame_->pin_count_.load();
+      if (prev > 0) {
+        prev = frame_->pin_count_.fetch_sub(1);
+        if (prev == 1) {
+          replacer_->SetEvictable(frame_->frame_id_, true);
+        }
       }
     }
   }
@@ -299,10 +302,13 @@ void WritePageGuard::Drop() {
   // 使用BPM锁保护对frame的修改，防止并发冲突
   if (bpm_latch_) {
     std::lock_guard<std::mutex> bpm_lock(*bpm_latch_);
-    if (frame_ && frame_->pin_count_.load() != 0) {
-      frame_->pin_count_.fetch_sub(1);
-      if (frame_->pin_count_.load() == 0) {
-        replacer_->SetEvictable(frame_->frame_id_, true);
+    if (frame_) {
+      auto prev = frame_->pin_count_.load();
+      if (prev > 0) {
+        prev = frame_->pin_count_.fetch_sub(1);
+        if (prev == 1) {
+          replacer_->SetEvictable(frame_->frame_id_, true);
+        }
       }
     }
   }
