@@ -161,7 +161,7 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
   if (page_table_.find(page_id) == page_table_.end()) {
     return true;
   }
-  auto frame = page_table_[page_id];
+  auto frame = page_table_.at(page_id);
 
   for (auto &it : frames_) {
     if (frame == it->frame_id_) {
@@ -227,7 +227,7 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
   std::unique_lock lock(*bpm_latch_);
   if (page_table_.find(page_id) != page_table_.end()) {
-    auto fid = page_table_[page_id];
+    auto fid = page_table_.at(page_id);
     auto frame = GetFrameById(fid);
     frame->pin_count_.fetch_add(1);
     // 先增加pin，后与replacer交互，避免窗口期被误认为可淘汰
@@ -236,11 +236,10 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     replacer_->RecordAccess(fid, page_id);
     auto temp_lock = bpm_latch_;
     lock.unlock();
-    return std::make_optional(
-        WritePageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, temp_lock, disk_scheduler_));
+    return std::make_optional(WritePageGuard(page_id, frame, replacer_, temp_lock, disk_scheduler_));
   }
   if (!free_frames_.empty() && NewPageById(page_id)) {
-    auto data = GetFrameById(page_table_[page_id])->data_.data();
+    auto data = GetFrameById(page_table_.at(page_id))->data_.data();
     if (data == nullptr) {
       return std::nullopt;
     }
@@ -254,7 +253,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
       return std::nullopt;
     }
     {
-      auto fid = page_table_[page_id];
+      auto fid = page_table_.at(page_id);
       auto frame = GetFrameById(fid);
       frame->pin_count_.fetch_add(1);
       replacer_->SetEvictable(fid, false);
@@ -263,7 +262,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
     auto temp_lock = bpm_latch_;
     lock.unlock();
     return std::make_optional(
-        WritePageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, temp_lock, disk_scheduler_));
+        WritePageGuard(page_id, GetFrameById(page_table_.at(page_id)), replacer_, temp_lock, disk_scheduler_));
   }
 
   auto frame_id = replacer_->Evict();
@@ -327,7 +326,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
   }
   if (page_table_.find(page_id) != page_table_.end()) {
     // 先增加pin，后与replacer交互，避免窗口期被误认为可淘汰
-    auto fid = page_table_[page_id];
+    auto fid = page_table_.at(page_id);
     auto frame = GetFrameById(fid);
     frame->pin_count_.fetch_add(1);
     replacer_->SetEvictable(fid, false);
@@ -335,11 +334,10 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
 
     auto temp_lock = bpm_latch_;
     lock.unlock();
-    return std::make_optional(
-        ReadPageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, temp_lock, disk_scheduler_));
+    return std::make_optional(ReadPageGuard(page_id, frame, replacer_, temp_lock, disk_scheduler_));
   }
   if (!free_frames_.empty() && NewPageById(page_id)) {
-    auto data = GetFrameById(page_table_[page_id])->data_.data();
+    auto data = GetFrameById(page_table_.at(page_id))->data_.data();
     if (data == nullptr) {
       return std::nullopt;
     }
@@ -353,7 +351,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
       return std::nullopt;
     }
     {
-      auto fid = page_table_[page_id];
+      auto fid = page_table_.at(page_id);
       auto frame = GetFrameById(fid);
       frame->pin_count_.fetch_add(1);
       replacer_->SetEvictable(fid, false);
@@ -362,7 +360,7 @@ auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_typ
     auto temp_lock = bpm_latch_;
     lock.unlock();
     return std::make_optional(
-        ReadPageGuard(page_id, GetFrameById(page_table_[page_id]), replacer_, temp_lock, disk_scheduler_));
+        ReadPageGuard(page_id, GetFrameById(page_table_.at(page_id)), replacer_, temp_lock, disk_scheduler_));
   }
 
   auto frame_id = replacer_->Evict();
@@ -471,7 +469,7 @@ auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool {
   auto it = page_table_.find(page_id);
   std::shared_ptr<FrameHeader> frame;
   if (it != page_table_.end()) {
-    auto frame_id = page_table_[page_id];
+    auto frame_id = it->second;
     for (auto &item : frames_) {
       if (item->frame_id_ == frame_id) {
         frame = item;
@@ -517,7 +515,7 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
   auto it = page_table_.find(page_id);
   std::shared_ptr<FrameHeader> frame;
   if (it != page_table_.end()) {
-    auto frame_id = page_table_[page_id];
+    auto frame_id = it->second;
     for (auto &item : frames_) {
       if (item->frame_id_ == frame_id) {
         frame = item;

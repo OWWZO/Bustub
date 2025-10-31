@@ -40,7 +40,7 @@ auto ArcReplacer::Evict() -> std::optional<frame_id_t> {
     for (auto it = lst.rbegin(); it != lst.rend(); ++it) {
       auto a = alive_map_.find(*it);
       if (a != alive_map_.end() && a->second->evictable_) {
-        return std::optional<frame_id_t>(*it);
+        return {*it};
       }
     }
     return std::nullopt;
