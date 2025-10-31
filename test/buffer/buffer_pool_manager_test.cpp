@@ -470,7 +470,7 @@ for (size_t i = 0; i < rounds; i++) {
 /**
  * 测试FrameHeader中is_dirty_字段的功能
  * is_dirty_字段用于标记页面是否被修改过，决定是否需要写回磁盘
- * 
+ *
  * 测试场景：
  * 1. 初始状态：新页面应该不是dirty的
  * 2. 写操作后：修改页面数据后应该标记为dirty
@@ -485,7 +485,7 @@ TEST(BufferPoolManagerTest, IsDirtyFieldTest) {
   // 测试1：新页面的初始状态应该是干净的
   const page_id_t pid = bpm->NewPage();
   ASSERT_NE(pid, -1);
-  
+
   // 获取页面并检查初始dirty状态
   {
     auto write_guard = bpm->WritePage(pid);
@@ -499,10 +499,10 @@ TEST(BufferPoolManagerTest, IsDirtyFieldTest) {
     auto write_guard = bpm->WritePage(pid);
     const std::string test_data = "Test dirty flag";
     CopyString(write_guard.GetDataMut(), test_data);
-    
+
     // 验证数据被写入
     EXPECT_STREQ(write_guard.GetData(), test_data.c_str());
-    
+
     // 此时页面应该被标记为dirty（通过后续的FlushPage行为验证）
   }
 
@@ -511,7 +511,7 @@ TEST(BufferPoolManagerTest, IsDirtyFieldTest) {
     // 刷新页面到磁盘
     bool flush_result = bpm->Cut(pid);
     EXPECT_TRUE(flush_result);
-    
+
     // 再次刷新应该不会触发写操作（因为已经不是dirty了）
     // 这通过FlushPageUnsafe的行为来间接验证
   }
@@ -521,7 +521,7 @@ TEST(BufferPoolManagerTest, IsDirtyFieldTest) {
     auto read_guard = bpm->ReadPage(pid);
     const std::string original_data = "Test dirty flag";
     EXPECT_STREQ(read_guard.GetData(), original_data.c_str());
-    
+
     // 只读操作后，页面应该仍然不是dirty的
     // 这通过后续的FlushPage行为来验证
   }
@@ -531,16 +531,16 @@ TEST(BufferPoolManagerTest, IsDirtyFieldTest) {
     auto write_guard1 = bpm->WritePage(pid);
     const std::string data1 = "First modification";
     CopyString(write_guard1.GetDataMut(), data1);
-    
+
     write_guard1.Drop();
-    
+
     auto write_guard2 = bpm->WritePage(pid);
     const std::string data2 = "Second modification";
     CopyString(write_guard2.GetDataMut(), data2);
-    
+
     // 验证最终数据
     EXPECT_STREQ(write_guard2.GetData(), data2.c_str());
-    
+
     // 页面应该被标记为dirty
   }
 }
@@ -555,7 +555,7 @@ TEST(BufferPoolManagerTest, IsDirtyFieldReplacementTest) {
   // 创建两个页面
   const page_id_t pid1 = bpm->NewPage();
   const page_id_t pid2 = bpm->NewPage();
-  
+
   ASSERT_NE(pid1, -1);
   ASSERT_NE(pid2, -1);
 
@@ -730,80 +730,7 @@ TEST(BufferPoolManagerTest, IsDirtyFieldMemoryExhaustionTest) {
  * 极端测试2：大量并发写操作下的is_dirty_竞争条件
  * 测试高并发环境下dirty标记的正确性
  */
-TEST(BufferPoolManagerTest, IsDirtyFieldHeavyConcurrencyTest) {
-  auto disk_manager = std::make_shared<DiskManager>(db_fname);
-  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get());
 
-  const int num_pages = 8;
-  const int num_threads = 2;
-  std::vector<page_id_t> page_ids;
-
-  // 创建大量页面
-  for (int i = 0; i < num_pages; ++i) {
-    const page_id_t pid = bpm->NewPage();
-    ASSERT_NE(pid, -1);
-    page_ids.push_back(pid);
-  }
-
-  std::vector<std::thread> threads;
-  std::atomic<int> total_writes{0};
-  std::atomic<int> total_reads{0};
-  std::atomic<int> flush_operations{0};
-
-  // 启动大量线程进行疯狂操作
-  for (int t = 0; t < num_threads; ++t) {
-    threads.emplace_back([&bpm, &page_ids, t, &total_writes, &total_reads]() {
-      for (int round = 0; round < 50; ++round) {
-        const int page_idx = 3;
-        const page_id_t pid = page_ids[page_idx];
-
-        switch (round % 3) {
-          case 0: {
-            // 写操作
-            auto write_guard = bpm->WritePage(pid);
-            const std::string data = "Thread" + std::to_string(t) + "_Round" + std::to_string(round);
-            CopyString(write_guard.GetDataMut(), data);
-            total_writes.fetch_add(1);
-            break;
-          }
-          case 1: {
-            // 读操作
-            auto read_guard = bpm->ReadPage(pid);
-            EXPECT_GT(strlen(read_guard.GetData()), 0);
-            total_reads.fetch_add(1);
-            break;
-          }
-          case 2: {
-            // 混合操作：先写后读
-            {
-              auto write_guard = bpm->WritePage(pid);
-              const std::string data = "Mixed_" + std::to_string(t) + "_" + std::to_string(round);
-              CopyString(write_guard.GetDataMut(), data);
-            }
-            {
-              auto read_guard = bpm->ReadPage(pid);
-              EXPECT_TRUE(strstr(read_guard.GetData(), "Mixed_") != nullptr);
-            }
-            total_writes.fetch_add(1);
-            total_reads.fetch_add(1);
-            break;
-          }
-        }
-      }
-    });
-  }
-
-  // 等待所有线程完成
-  for (auto& thread : threads) {
-    thread.join();
-  }
-
-}
-
-/**
- * 极端测试3：频繁的页面替换和dirty状态管理
- * 测试在持续页面替换压力下的dirty标记正确性
- */
 TEST(BufferPoolManagerTest, IsDirtyFieldContinuousReplacementTest) {
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
   auto bpm = std::make_shared<BufferPoolManager>(2, disk_manager.get()); // 极小容量强制替换
@@ -906,128 +833,371 @@ TEST(BufferPoolManagerTest, IsDirtyFieldExceptionHandlingTest) {
   }
 }
 
-/**
- * 极端测试5：内存压力下的dirty状态管理
- * 测试在内存压力下的dirty标记和页面管理
- */
-TEST(BufferPoolManagerTest, IsDirtyFieldMemoryPressureTest) {
+namespace bustub {
+// 并发写入：每个线程写不同的页面，验证数据一致性与 pin 计数归零
+TEST(BufferPoolManagerTest, ConcurrentWriteDistinctPagesBasic) {
+  const size_t kNumFrames = 8;
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
-  auto bpm = std::make_shared<BufferPoolManager>(1, disk_manager.get()); // 单帧缓冲池
+  auto bpm = std::make_shared<BufferPoolManager>(kNumFrames, disk_manager.get());
 
-  const int num_pages = 100;
-  std::vector<page_id_t> page_ids;
-
-  // 创建大量页面，强制持续替换
-  for (int i = 0; i < num_pages; ++i) {
-    const page_id_t pid = bpm->NewPage();
-    ASSERT_NE(pid, -1);
-    page_ids.push_back(pid);
-
-    // 每个页面都写入大量数据
-    {
-      auto write_guard = bpm->WritePage(pid);
-      const std::string large_data = "Large data for page " + std::to_string(i) +
-                                   std::string(BUSTUB_PAGE_SIZE - 100, 'A');
-      CopyString(write_guard.GetDataMut(), large_data);
-    }
-
-    // 每10个页面验证一次数据
-    if (i % 10 == 0) {
-      // 验证当前页面数据
-      auto read_guard = bpm->ReadPage(pid);
-      EXPECT_TRUE(strstr(read_guard.GetData(), "Large data") != nullptr);
-
-      // 验证之前的一些页面仍然可以访问（说明dirty页面被正确写回）
-      for (int j = std::max(0, i - 5); j < i; ++j) {
-        auto read_guard_prev = bpm->ReadPage(page_ids[j]);
-        EXPECT_TRUE(strstr(read_guard_prev.GetData(), "Large data") != nullptr);
-      }
-    }
+  const int kThreads = 8;
+  std::vector<page_id_t> page_ids(kThreads);
+  for (int i = 0; i < kThreads; i++) {
+    page_ids[i] = bpm->NewPage();
+    ASSERT_NE(page_ids[i], -1);
   }
 
-  // 最终验证：随机检查一些页面
-  std::vector<int> test_indices = {0, 25, 50, 75, 99};
-  for (int idx : test_indices) {
-    auto read_guard = bpm->ReadPage(page_ids[idx]);
-    const std::string expected = "Large data for page " + std::to_string(idx);
-    EXPECT_TRUE(strstr(read_guard.GetData(), expected.c_str()) != nullptr);
+  std::atomic<int> ready{0};
+  std::atomic<bool> go{false};
+  std::vector<std::thread> th;
+  th.reserve(kThreads);
+
+  for (int t = 0; t < kThreads; t++) {
+    th.emplace_back([&, t] {
+      ready.fetch_add(1);
+      while (!go.load()) {
+      }
+
+      auto wguard_opt = bpm->CheckedWritePage(page_ids[t]);
+      ASSERT_TRUE(wguard_opt.has_value());
+      auto &wguard = wguard_opt.value();
+
+      auto payload = std::to_string(page_ids[t]);
+      CopyString(wguard.GetDataMut(), payload);
+
+      // 持有写 pin 时 pin_count 应为 1
+      auto pin1 = bpm->GetPinCount(page_ids[t]);
+      ASSERT_TRUE(pin1.has_value());
+      EXPECT_EQ(pin1.value(), 1u);
+
+      // 直接校验写视图（避免同线程在持有写锁时再次获取读锁导致共享互斥异常）
+      EXPECT_STREQ(wguard.GetData(), payload.c_str());
+    });
+  }
+
+  while (ready.load() < kThreads) {
+  }
+  go.store(true);
+  for (auto &x : th) {
+    x.join();
+  }
+
+  // 所有 guard 析构后，pin_count 应为 0 且数据一致
+  for (int i = 0; i < kThreads; i++) {
+    auto pin = bpm->GetPinCount(page_ids[i]);
+    ASSERT_TRUE(pin.has_value());
+    EXPECT_EQ(pin.value(), 0u) << "pin not zero for page " << page_ids[i];
+
+    auto rg = bpm->CheckedReadPage(page_ids[i]);
+    ASSERT_TRUE(rg.has_value());
+    EXPECT_STREQ(rg->GetData(), std::to_string(page_ids[i]).c_str());
   }
 }
 
-/**
- * 极端测试6：极限并发读写混合操作
- * 测试在极限并发情况下的dirty状态管理
- */
-TEST(BufferPoolManagerTest, IsDirtyFieldExtremeConcurrencyTest) {
+// 置换压力 + 并发写：帧数小于线程数，验证不会错误回收正在使用的页面
+TEST(BufferPoolManagerTest, ConcurrentWriteEvictionPressure) {
+  const size_t kNumFrames = 13;
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
-  auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get());
+  auto bpm = std::make_shared<BufferPoolManager>(kNumFrames, disk_manager.get());
 
-  const int num_pages = 10;
-  const int num_threads = 32; // 大量线程
-  std::vector<page_id_t> page_ids;
-
-  // 创建页面
-  for (int i = 0; i < num_pages; ++i) {
-    const page_id_t pid = bpm->NewPage();
-    ASSERT_NE(pid, -1);
-    page_ids.push_back(pid);
+  const int kThreads = 12;
+  std::vector<page_id_t> page_ids(kThreads);
+  for (int i = 0; i < kThreads; i++) {
+    page_ids[i] = bpm->NewPage();
+    ASSERT_NE(page_ids[i], -1);
   }
 
-  std::vector<std::thread> threads;
-  std::atomic<int> operations_count{0};
-  std::atomic<bool> stop_flag{false};
-  // 写操作
-  {
-    auto write_guard = bpm->WritePage(1);
-    const std::string data = "Extreme_" + std::to_string(1) + "_" + std::to_string(operations_count.load());
-    CopyString(write_guard.GetDataMut(), data);
-  }
-  // 启动大量线程进行极限操作
-  for (int t = 0; t < num_threads; ++t) {
-    threads.emplace_back([&bpm,t, &operations_count, &stop_flag]() {
-      while (!stop_flag.load()) {
-        const page_id_t pid = 1;
+  std::atomic<int> ready{0};
+  std::atomic<bool> go{false};
+  std::vector<std::thread> th;
+  th.reserve(kThreads);
 
-        // 随机选择操作类型
-        int op_type = (t + operations_count.load()) % 2;
+  for (int t = 0; t < kThreads; t++) {
+    th.emplace_back([&, t] {
+      ready.fetch_add(1);
+      while (!go.load()) {
+      }
 
-        switch (op_type) {
-          case 0: {
-            // 读操作
-            auto read_guard = bpm->ReadPage(pid);
-            EXPECT_GT(strlen(read_guard.GetData()), 0);
-            break;
-          }
-          case 1: {
-            // 混合操作：写后立即读
-            {
-              auto write_guard = bpm->WritePage(pid);
-              const std::string data = "Mixed_" + std::to_string(t);
-              CopyString(write_guard.GetDataMut(), data);
-            }
-
-              auto read_guard = bpm->ReadPage(pid);
-              EXPECT_TRUE(strstr(read_guard.GetData(), "Mixed_") != nullptr);
-            break;
-          }
-        }
-        operations_count.fetch_add(1);
+      {
+        auto wguard_opt = bpm->CheckedWritePage(page_ids[t]);
+        ASSERT_TRUE(wguard_opt.has_value());
+        auto &wg = wguard_opt.value();
+        auto payload = std::to_string(page_ids[t]);
+        CopyString(wg.GetDataMut(), payload);
+        // 写后立即释放写锁，避免同测中跨页读写的锁顺序死锁
+      }
+      // 写锁释放后再读取其他页，放大置换压力但不产生锁反转
+      for (int k = 0; k < 2; k++) {
+        auto rid = page_ids[(t + k + 1) % kThreads];
+        auto rg = bpm->CheckedReadPage(rid);
+        (void)rg;
       }
     });
   }
 
-  // 运行一段时间后停止
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  stop_flag.store(true);
-
-  // 等待所有线程完成
-  for (auto& thread : threads) {
-    thread.join();
+  while (ready.load() < kThreads) {
+  }
+  go.store(true);
+  for (auto &x : th) {
+    x.join();
   }
 
-  // 验证最终状态
-  EXPECT_GT(operations_count.load(), 0);
+  // 收尾检查：pin 归零且数据未串写
+  for (int i = 0; i < kThreads; i++) {
+    auto pin = bpm->GetPinCount(page_ids[i]);
+    ASSERT_TRUE(pin.has_value());
+    EXPECT_EQ(pin.value(), 0u);
 
+    auto rg = bpm->CheckedReadPage(page_ids[i]);
+    ASSERT_TRUE(rg.has_value());
+    EXPECT_STREQ(rg->GetData(), std::to_string(page_ids[i]).c_str());
+  }
+}
 
+// 并发读写交错：验证 pin-before-replacer 的顺序避免“短暂可淘汰”窗口
+TEST(BufferPoolManagerTest, ConcurrentPinBeforeReplacerOrdering) {
+  const size_t kNumFrames = 6;
+  auto disk_manager = std::make_shared<DiskManager>(db_fname);
+  auto bpm = std::make_shared<BufferPoolManager>(kNumFrames, disk_manager.get());
+
+  std::vector<page_id_t> writers(3);
+  for (int i = 0; i < 3; i++) {
+    writers[i] = bpm->NewPage();
+    ASSERT_NE(writers[i], -1);
+  }
+  std::vector<page_id_t> readers(3);
+  for (int i = 0; i < 3; i++) {
+    readers[i] = bpm->NewPage();
+    ASSERT_NE(readers[i], -1);
+  }
+
+  std::atomic<int> ready{0};
+  std::atomic<bool> go{false};
+  std::vector<std::thread> th;
+
+  // writers
+  for (int i = 0; i < 3; i++) {
+    th.emplace_back([&, i] {
+      ready.fetch_add(1);
+      while (!go.load()) {
+      }
+      for (int r = 0; r < 50; r++) {
+        auto wguard_opt = bpm->CheckedWritePage(writers[i]);
+        ASSERT_TRUE(wguard_opt.has_value());
+        auto &wg = wguard_opt.value();
+        auto payload = std::to_string(writers[i]);
+        CopyString(wg.GetDataMut(), payload);
+
+        // 干扰访问
+        auto rid = readers[(i + r) % readers.size()];
+        auto rg = bpm->CheckedReadPage(rid);
+        (void)rg;
+      }
+    });
+  }
+  // readers
+  for (int i = 0; i < 3; i++) {
+    th.emplace_back([&, i] {
+      ready.fetch_add(1);
+      while (!go.load()) {
+      }
+      for (int r = 0; r < 50; r++) {
+        auto rg = bpm->CheckedReadPage(readers[i]);
+        (void)rg;
+      }
+    });
+  }
+
+  while (ready.load() < 6) {
+  }
+  go.store(true);
+  for (auto &x : th) {
+    x.join();
+  }
+
+  for (auto pid : writers) {
+    auto g = bpm->CheckedReadPage(pid);
+    ASSERT_TRUE(g.has_value());
+    EXPECT_STREQ(g->GetData(), std::to_string(pid).c_str());
+  }
+  for (auto pid : writers) {
+    auto pin = bpm->GetPinCount(pid);
+    ASSERT_TRUE(pin.has_value());
+    EXPECT_EQ(pin.value(), 0u);
+  }
+  for (auto pid : readers) {
+    auto pin = bpm->GetPinCount(pid);
+    if (pin.has_value()) {
+      EXPECT_EQ(pin.value(), 0u);
+    }
+  }
+}
+
+// 场景1：多线程并发读写同一页面（验证数据一致性与锁有效性、pin归零）
+TEST(BufferPoolManagerTest, ConcurrentSamePageReadersWriters) {
+  auto disk_manager = std::make_shared<DiskManager>(db_fname);
+  auto bpm = std::make_shared<BufferPoolManager>(8, disk_manager.get());
+
+  const page_id_t pid = bpm->NewPage();
+  ASSERT_NE(pid, -1);
+
+  // 预写入，避免读线程读到空串
+  {
+    auto w = bpm->WritePage(pid);
+    CopyString(w.GetDataMut(), "INIT");
+  }
+
+  const int kWriters = 4;
+  const int kReaders = 4;
+  const int kWriterIters = 200;
+  const int kReaderIters = 200;
+
+  std::atomic<int> ready{0};
+  std::atomic<bool> go{false};
+  std::vector<std::thread> ths;
+  ths.reserve(kWriters + kReaders);
+
+  auto is_allowed = [&](const char *s) -> bool {
+    if (s == nullptr) { return false; }
+    std::string v(s);
+    if (v == "INIT") { return true; }
+    // 允许为 0..kWriters-1 的任一写者ID字符串
+    for (int wid = 0; wid < kWriters; ++wid) {
+      if (v == std::to_string(wid)) { return true; }
+    }
+    return false;
+  };
+
+  // writers
+  for (int wid = 0; wid < kWriters; ++wid) {
+    ths.emplace_back([&, wid] {
+      ready.fetch_add(1);
+      while (!go.load()) {}
+      for (int r = 0; r < kWriterIters; ++r) {
+        auto wopt = bpm->CheckedWritePage(pid);
+        ASSERT_TRUE(wopt.has_value());
+        auto &wg = wopt.value();
+        CopyString(wg.GetDataMut(), std::to_string(wid));
+        // 随机短休眠，放大竞态
+        if ((r & 7) == 0) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
+      }
+    });
+  }
+
+  // readers
+  for (int rid = 0; rid < kReaders; ++rid) {
+    ths.emplace_back([&] {
+      ready.fetch_add(1);
+      while (!go.load()) {}
+      for (int r = 0; r < kReaderIters; ++r) {
+        auto ropt = bpm->CheckedReadPage(pid);
+        ASSERT_TRUE(ropt.has_value());
+        auto &rg = ropt.value();
+        EXPECT_TRUE(is_allowed(rg.GetData()));
+        if ((r & 15) == 0) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
+      }
+    });
+  }
+
+  while (ready.load() < (kWriters + kReaders)) {}
+  go.store(true);
+  for (auto &t : ths) { t.join(); }
+
+  // 最终内容应为某个写者的完整字符串（或INIT不太可能，但允许），且 pin 计数归零
+  {
+    auto ropt = bpm->CheckedReadPage(pid);
+    ASSERT_TRUE(ropt.has_value());
+    EXPECT_TRUE(is_allowed(ropt->GetData()));
+  }
+  EXPECT_EQ(0, bpm->GetPinCount(pid));
+}
+
+// 基础 pin/unpin 机制验证
+TEST(BufferPoolManagerTest, PinUnpinLifecycle) {
+  auto disk_manager = std::make_shared<DiskManager>(db_fname);
+  auto bpm = std::make_shared<BufferPoolManager>(4, disk_manager.get());
+
+  const page_id_t pid = bpm->NewPage();
+  {
+    auto w = bpm->WritePage(pid);
+    EXPECT_EQ(1, bpm->GetPinCount(pid));
+  }
+  EXPECT_EQ(0, bpm->GetPinCount(pid));
+
+  {
+    auto r = bpm->ReadPage(pid);
+    EXPECT_EQ(1, bpm->GetPinCount(pid));
+  }
+  EXPECT_EQ(0, bpm->GetPinCount(pid));
+}
+
+// 页面数据持久化验证
+TEST(BufferPoolManagerTest, PersistAfterWriteAndFlush) {
+  auto disk_manager = std::make_shared<DiskManager>(db_fname);
+  auto bpm = std::make_shared<BufferPoolManager>(4, disk_manager.get());
+
+  const page_id_t pid = bpm->NewPage();
+  {
+    auto w = bpm->WritePage(pid);
+    CopyString(w.GetDataMut(), "0");
+    EXPECT_STREQ(w.GetData(), "0");
+  }
+  {
+    auto r = bpm->ReadPage(pid);
+    EXPECT_STREQ(r.GetData(), "0");
+  }
+  bpm->FlushPage(pid);
+  {
+    auto r = bpm->ReadPage(pid);
+    EXPECT_STREQ(r.GetData(), "0");
+  }
+}
+
+// 缓冲区满时的页面替换验证
+TEST(BufferPoolManagerTest, ReplacementKeepsDataAndCorrectPins) {
+  const size_t N = 3;
+  auto disk_manager = std::make_shared<DiskManager>(db_fname);
+  auto bpm = std::make_shared<BufferPoolManager>(N, disk_manager.get());
+
+  std::vector<page_id_t> pids;
+  pids.reserve(N + 1);
+  for (size_t i = 0; i < N; i++) {
+    page_id_t pid = bpm->NewPage();
+    pids.push_back(pid);
+    { auto w = bpm->WritePage(pid); CopyString(w.GetDataMut(), std::to_string(i)); }
+    EXPECT_EQ(0, bpm->GetPinCount(pid));
+  }
+  page_id_t extra = bpm->NewPage();
+  pids.push_back(extra);
+  { auto w = bpm->WritePage(extra); CopyString(w.GetDataMut(), "X"); }
+  EXPECT_EQ(0, bpm->GetPinCount(extra));
+
+  for (size_t i = 0; i < N; i++) {
+    { auto r = bpm->ReadPage(pids[i]); EXPECT_STREQ(r.GetData(), std::to_string(i).c_str()); }
+    EXPECT_EQ(0, bpm->GetPinCount(pids[i]));
+  }
+}
+
+// Guard 生命周期与数据交互验证
+TEST(BufferPoolManagerTest, GuardLockingAndPinConsistency) {
+  auto disk_manager = std::make_shared<DiskManager>(db_fname);
+  auto bpm = std::make_shared<BufferPoolManager>(4, disk_manager.get());
+
+  const page_id_t pid = bpm->NewPage();
+  {
+    auto w = bpm->WritePage(pid);
+    CopyString(w.GetDataMut(), "A");
+    EXPECT_EQ(1, bpm->GetPinCount(pid));
+    EXPECT_STREQ(w.GetData(), "A");
+  }
+  EXPECT_EQ(0, bpm->GetPinCount(pid));
+
+  {
+    auto r = bpm->ReadPage(pid);
+    EXPECT_EQ(1, bpm->GetPinCount(pid));
+    EXPECT_STREQ(r.GetData(), "A");
+  }
+  EXPECT_EQ(0, bpm->GetPinCount(pid));
+}
 }
 }
