@@ -22,27 +22,29 @@ namespace bustub {
  *****************************************************************************/
 
 /**
- * @brief Init method after creating a new internal page.
- *
- * Writes the necessary header information to a newly created page,
- * including set page type, set current size, set page id, set parent id and set max page size,
- * must be called after the creation of a new page to make a valid BPlusTreeInternalPage.
- *
- * @param max_size Maximal size of the page
- */
+@brief 创建新的内部页后的初始化方法。
+向新创建的页写入必要的头部信息，
+包括设置页类型、设置当前大小、设置页 ID、设置父 ID 以及设置最大页大小，
+必须在创建新页后调用，以生成有效的 BPlusTreeInternalPage。
+@param max_size 页的最大大小
+*/
+//TODO(wwz): 页类型 size 和maxsize已经设置   剩余页id 和父id
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Init(int max_size) { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Init(int max_size) {
+  SetPageType(IndexPageType::INTERNAL_PAGE);
+  SetSize(0);
+  SetMaxSize(max_size);
+}
 
 /**
- * @brief Helper method to get/set the key associated with input "index"(a.k.a
- * array offset).
- *
- * @param index The index of the key to get. Index must be non-zero.
- * @return Key at index
- */
+@brief 辅助方法，用于获取 / 设置与输入 “index”（也称为数组偏移量）相关联的键。
+@param index 要获取的键的索引。索引必须非零。
+@return 索引处的键
+*/
+//TODO(wwz) index为0还没有处理
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyAt(int index) const -> KeyType {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
+  return key_array_[index-1];
 }
 
 /**
@@ -53,7 +55,20 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyAt(int index) const -> KeyType {
  */
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
+  if (index==0) {
+    return;
+  }
+  key_array_[index-1]=key;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueIndex(const ValueType &value) const -> int {
+    for (int i=0;i<INTERNAL_PAGE_SLOT_CNT;i++) {
+      if (page_id_array_[i]==value) {
+        return i;
+      }
+    }
+  return -1;
 }
 
 /**
@@ -65,7 +80,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) {
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueAt(int index) const -> ValueType {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
+    return page_id_array_[index];
 }
 
 // valuetype for internalNode should be page id_t

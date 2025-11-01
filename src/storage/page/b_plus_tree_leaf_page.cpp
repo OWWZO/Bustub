@@ -17,41 +17,51 @@
 #include "storage/page/b_plus_tree_leaf_page.h"
 
 namespace bustub {
-
 /*****************************************************************************
  * HELPER METHODS AND UTILITIES
  *****************************************************************************/
 
 /**
- * @brief Init method after creating a new leaf page
- *
- * After creating a new leaf page from buffer pool, must call initialize method to set default values,
- * including set page type, set current size to zero, set page id/parent id, set
- * next page id and set max size.
- *
- * @param max_size Max size of the leaf node
- */
+@brief 创建新叶子页后的初始化方法
+从缓冲池创建新的叶子页后，必须调用初始化方法来设置默认值，
+包括设置页类型、将当前大小设为零、设置页 ID / 父 ID、设置
+下一页 ID 以及设置最大大小。
+@param max_size 叶子节点的最大大小
+*/
+//TODO(wwz): next_page_id_ 页id 父页id还未初始化
 FULL_INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) {
+  SetMaxSize(max_size);
+  SetSize(0);
+  SetPageType(IndexPageType::LEAF_PAGE);
+  num_tombstones_ = 0;
+}
 
 /**
- * @brief Helper function for fetching tombstones of a page.
- * @return The last `NumTombs` keys with pending deletes in this page in order of recency (oldest at front).
- */
+@brief 获取页面墓碑的辅助函数。
+@return 此页面中按时间顺序（最旧的在前面）排列的最后NumTombs个带有待删除标记的键。
+*/
+//TODO(wwz): 需求有点不明确
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetTombstones() const -> std::vector<KeyType> {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
+  std::vector<KeyType> v;
+  for (size_t i = 0; i < num_tombstones_; i++) {
+    v.push_back(key_array_[tombstones_[i]]);
+  }
+  return v;
 }
 
 /**
  * Helper methods to set/get next page id
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetNextPageId() const -> page_id_t { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetNextPageId() const -> page_id_t {
+  return next_page_id_;
+}
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::SetNextPageId(page_id_t next_page_id) {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
+  next_page_id_ = next_page_id;
 }
 
 /*
@@ -59,7 +69,53 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::SetNextPageId(page_id_t next_page_id) {
  * array offset)
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType {
+  return key_array_[index];
+}
+
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::InsertKeyValue(const KeyComparator &comparator, const KeyType &key,
+                                                const ValueType &value) {
+  if (GetSize() == 0) {
+    key_array_[0] = key;
+    rid_array_[0] = value;
+  } else {
+    auto index = BinarySearch(comparator, key);
+    if (index == GetSize()) {
+      key_array_[index] = key;
+      rid_array_[index] = value;
+    } else {
+      for (int i = GetSize() - 1; i >= index; i--) {
+        //TODO(wwz): 还没有写maxsize限制逻辑
+        key_array_[i + 1] = key_array_[i];
+        rid_array_[i + 1] = rid_array_[i];
+      }
+      key_array_[index] = key;
+      rid_array_[index] = value;
+    }
+  }
+  ChangeSizeBy(1);
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::BinarySearch(const KeyComparator &comparator,
+                                              const KeyType &key) -> int {
+  int begin = 0;
+  int end = GetSize() - 1;
+  int result = GetSize();
+  while (begin <= end) {
+    int mid = (end - begin) / 2 + begin;
+    if (comparator(key_array_[mid], key) > 0) {
+      end = mid - 1;
+      result = mid;
+    } else {
+      begin = mid + 1;
+    }
+  }
+  return result;
+}
+
 
 template class BPlusTreeLeafPage<GenericKey<4>, RID, GenericComparator<4>>;
 
@@ -74,4 +130,4 @@ template class BPlusTreeLeafPage<GenericKey<16>, RID, GenericComparator<16>>;
 template class BPlusTreeLeafPage<GenericKey<32>, RID, GenericComparator<32>>;
 
 template class BPlusTreeLeafPage<GenericKey<64>, RID, GenericComparator<64>>;
-}  // namespace bustub
+} // namespace bustub

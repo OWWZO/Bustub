@@ -15,43 +15,45 @@
 #include "storage/index/b_plus_tree_debug.h"
 
 namespace bustub {
-
 FULL_INDEX_TEMPLATE_ARGUMENTS
 BPLUSTREE_TYPE::BPlusTree(std::string name, page_id_t header_page_id, BufferPoolManager *buffer_pool_manager,
                           const KeyComparator &comparator, int leaf_max_size, int internal_max_size)
-    : bpm_(std::make_shared<TracedBufferPoolManager>(buffer_pool_manager)),
-      index_name_(std::move(name)),
-      comparator_(std::move(comparator)),
-      leaf_max_size_(leaf_max_size),
-      internal_max_size_(internal_max_size),
-      header_page_id_(header_page_id) {
+  : bpm_(std::make_shared<TracedBufferPoolManager>(buffer_pool_manager)),
+    index_name_(std::move(name)),
+    comparator_(std::move(comparator)),
+    leaf_max_size_(leaf_max_size),
+    internal_max_size_(internal_max_size),
+    header_page_id_(header_page_id) {
+  //分配一个header_page_id 来存根页id 存树的全局配置
   WritePageGuard guard = bpm_->WritePage(header_page_id_);
   auto root_page = guard.AsMut<BPlusTreeHeaderPage>();
   root_page->root_page_id_ = INVALID_PAGE_ID;
 }
 
 /**
- * @brief Helper function to decide whether current b+tree is empty
- * @return Returns true if this B+ tree has no keys and values.
- */
+@brief 用于判断当前 B + 树是否为空的辅助函数
+@return 若此 B + 树没有键和值，则返回 true。
+*/
 FULL_INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::IsEmpty() const -> bool { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+auto BPLUSTREE_TYPE::IsEmpty() const -> bool {
+  ReadPageGuard guard = bpm_->ReadPage(header_page_id_);
+  auto root_page = guard.As<BPlusTreeHeaderPage>();
+  if (root_page->root_page_id_ == INVALID_PAGE_ID) {
+    return true;
+  }
+  return false;
+}
 
-/*****************************************************************************
- * SEARCH
- *****************************************************************************/
+
 /**
- * @brief Return the only value that associated with input key
- *
- * This method is used for point query
- *
- * @param key input key
- * @param[out] result vector that stores the only value that associated with input key, if the value exists
- * @return : true means key exists
- */
+@brief 返回与输入键相关联的唯一值
+此方法用于点查询
+@param key 输入键
+@param [out] result 存储与输入键相关联的唯一值的向量（如果该值存在）
+@return ：true 表示键存在
+*/
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result) -> bool {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
   // Declaration of context instance. Using the Context is not necessary but advised.
   Context ctx;
 }
@@ -60,21 +62,36 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
  * INSERTION
  *****************************************************************************/
 /**
- * @brief Insert constant key & value pair into b+ tree
- *
- * if current tree is empty, start new tree, update root page id and insert
- * entry; otherwise, insert into leaf page.
- *
- * @param key the key to insert
- * @param value the value associated with key
- * @return: since we only support unique key, if user try to insert duplicate
- * keys return false; otherwise, return true.
- */
+@brief 向 B + 树中插入常量键值对
+如果当前树为空，则启动新树，更新根页 ID 并插入条目；否则，插入到叶页中。
+@param key 要插入的键
+@param value 与键相关联的值
+@return: 由于我们仅支持唯一键，如果用户尝试插入重复键，则返回 false；否则，返回 true。
+*/
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
-  // Declaration of context instance. Using the Context is not necessary but advised.
   Context ctx;
+  //获取 头页的guard 然后根据头页的guard来获取根页的数据数组
+  WritePageGuard header_guard = bpm_->WritePage(header_page_id_);
+  auto header_page_read = header_guard.As<BPlusTreeHeaderPage>();
+  auto header_page_write = header_guard.AsMut<BPlusTreeHeaderPage>();
+  //处理树为空的逻辑
+  if (header_page_read->root_page_id_ == INVALID_PAGE_ID) {
+    page_id_t page_id = bpm_->NewPage();
+    //给全局配置里的根页设置id
+    header_page_write->root_page_id_ = page_id;
+    //获取根页的write_guard
+    WritePageGuard root_page_guard = bpm_->WritePage(page_id);
+    //用guard 来获取到页面的数据数组 将内存变为leaf页 进行操作
+    auto root_page_write = root_page_guard.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+    //初始化叶子页
+    root_page_write->Init();
+    //插入键值对
+    root_page_write->InsertKeyValue(0,key,value);
+    return true;
+  }
+
+  return false;
 }
 
 /*****************************************************************************
@@ -147,5 +164,4 @@ template class BPlusTree<GenericKey<16>, RID, GenericComparator<16>>;
 template class BPlusTree<GenericKey<32>, RID, GenericComparator<32>>;
 
 template class BPlusTree<GenericKey<64>, RID, GenericComparator<64>>;
-
-}  // namespace bustub
+} // namespace bustub

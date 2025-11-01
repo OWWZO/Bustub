@@ -13,33 +13,51 @@
 #include "storage/page/b_plus_tree_page.h"
 
 namespace bustub {
-
 /*
- * Helper methods to get/set page type
- * Page type enum class is defined in b_plus_tree_page.h
- */
-auto BPlusTreePage::IsLeafPage() const -> bool { UNIMPLEMENTED("TODO(P2): Add implementation."); }
-void BPlusTreePage::SetPageType(IndexPageType page_type) { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+获取 / 设置页面类型的辅助方法
+页面类型枚举类定义在 b_plus_tree_page.h 中
+*/
+auto BPlusTreePage::IsLeafPage() const -> bool {
+  if (page_type_ == IndexPageType::LEAF_PAGE) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+void BPlusTreePage::SetPageType(IndexPageType page_type) {
+  page_type_ = page_type;
+}
 
 /*
  * Helper methods to get/set size (number of key/value pairs stored in that
  * page)
  */
-auto BPlusTreePage::GetSize() const -> int { UNIMPLEMENTED("TODO(P2): Add implementation."); }
-void BPlusTreePage::SetSize(int size) { UNIMPLEMENTED("TODO(P2): Add implementation."); }
-void BPlusTreePage::ChangeSizeBy(int amount) { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+auto BPlusTreePage::GetSize() const -> int {
+  return size_;
+}
 
-/*
- * Helper methods to get/set max size (capacity) of the page
- */
-auto BPlusTreePage::GetMaxSize() const -> int { UNIMPLEMENTED("TODO(P2): Add implementation."); }
-void BPlusTreePage::SetMaxSize(int size) { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+void BPlusTreePage::SetSize(int size) {
+  size_ = size;
+}
+
+void BPlusTreePage::ChangeSizeBy(int amount) {
+  size_ += amount;
+}
+
+
+auto BPlusTreePage::GetMaxSize() const -> int {
+  return max_size_;
+}
+
+void BPlusTreePage::SetMaxSize(int size) {
+  max_size_ = size;
+}
 
 /*
  * Helper method to get min page size
  * Generally, min page size == max page size / 2
  * But whether you will take ceil() or floor() depends on your implementation
  */
-auto BPlusTreePage::GetMinSize() const -> int { UNIMPLEMENTED("TODO(P2): Add implementation."); }
-
-}  // namespace bustub
+auto BPlusTreePage::GetMinSize() const -> int { return ceil(static_cast<float>(max_size_) / 2); }
+} // namespace bustub
