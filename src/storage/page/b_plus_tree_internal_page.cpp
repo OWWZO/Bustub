@@ -34,6 +34,8 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Init(int max_size) {
   SetPageType(IndexPageType::INTERNAL_PAGE);
   SetSize(0);
   SetMaxSize(max_size);
+  SetPageId(INVALID_PAGE_ID);
+  SetFatherPageId(INVALID_PAGE_ID);
 }
 
 /**
@@ -44,7 +46,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Init(int max_size) {
 //TODO(wwz) index为0还没有处理
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyAt(int index) const -> KeyType {
-  return key_array_[index-1];
+  return key_array_[index - 1];
 }
 
 /**
@@ -55,19 +57,19 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyAt(int index) const -> KeyType {
  */
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) {
-  if (index==0) {
+  if (index == 0) {
     return;
   }
-  key_array_[index-1]=key;
+  key_array_[index - 1] = key;
 }
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueIndex(const ValueType &value) const -> int {
-    for (int i=0;i<INTERNAL_PAGE_SLOT_CNT;i++) {
-      if (page_id_array_[i]==value) {
-        return i;
-      }
+  for (int i = 0; i < INTERNAL_PAGE_SLOT_CNT; i++) {
+    if (page_id_array_[i] == value) {
+      return i;
     }
+  }
   return -1;
 }
 
@@ -80,8 +82,89 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueIndex(const ValueType &value) const ->
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueAt(int index) const -> ValueType {
-    return page_id_array_[index];
+  return page_id_array_[index];
 }
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::BinarySearch(const KeyComparator &comparator,
+                                              const KeyType &key) -> int {
+  int begin = 0;
+  int end = GetSize() - 1;
+  int result = GetSize();
+  while (begin <= end) {
+    int mid = (end - begin) / 2 + begin;
+    int res=comparator(key_array_[mid], key);
+    if (res > 0) {
+      end = mid - 1;
+      result = mid;
+    } else if (res < 0){
+      begin = mid + 1;
+    }else {
+      return -1;
+    }
+  }
+  return result;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::FirstInsert(
+    const KeyType &key, const ValueType &left_page_id, const ValueType &right_page_id) {
+    key_array_[0]=key;
+    page_id_array_[0]=left_page_id;
+    page_id_array_[1]=right_page_id;
+    ChangeSizeBy(1);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+bool B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertKeyValue(const KeyComparator &comparator,
+                                                    const KeyType &key, const ValueType &value) {
+  //TODO(wwz): insert不处理满了的逻辑 只在未满的前提下进行插入
+    auto index = BinarySearch(comparator, key);
+    if (index==-1) {
+      return false;
+    }
+    if (index == GetSize()) {
+      key_array_[index] = key;
+      page_id_array_[index] = value;
+    } else {
+      for (int i = GetSize() - 1; i >= index; i--) {
+        key_array_[i + 1] = key_array_[i];
+        page_id_array_[i + 1] = page_id_array_[i];
+      }
+      key_array_[index] = key;
+      page_id_array_[index] = value;
+    }
+  ChangeSizeBy(1);
+  return true;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Find(const KeyComparator& comparator, const KeyType &key) -> page_id_t {
+  auto index=BinarySearch(comparator,key);
+  if (index==-1) {
+    return -1;
+  }
+  return page_id_array_[index];
+}
+
+//这是内页下是两个叶子页的分裂逻辑
+INDEX_TEMPLATE_ARGUMENTS//只需要移动下一层的id 因为是链式结构
+KeyType B_PLUS_TREE_INTERNAL_PAGE_TYPE::Split(
+    B_PLUS_TREE_INTERNAL_PAGE_TYPE*new_internal_page, std::vector<page_id_t>& v) {
+  int mid;
+  for (mid=(GetMaxSize()+1)/2+1;mid<GetMaxSize();mid++) {
+    //由于已经是有序的 新内页所以直接顺序加入
+    new_internal_page->key_array_[GetSize()]=key_array_[mid];
+    new_internal_page->page_id_array_[GetSize()]=page_id_array_[mid];
+    //更新叶子页的father_id为新的内页id
+    v.push_back(page_id_array_[mid]);
+    new_internal_page->ChangeSizeBy(1);
+    //同时更新size 不需要物理删除 直接通过size来逻辑删除
+    ChangeSizeBy(-1);
+  }
+  return key_array_[mid];
+}
+
 
 // valuetype for internalNode should be page id_t
 template class BPlusTreeInternalPage<GenericKey<4>, page_id_t, GenericComparator<4>>;
@@ -89,4 +172,4 @@ template class BPlusTreeInternalPage<GenericKey<8>, page_id_t, GenericComparator
 template class BPlusTreeInternalPage<GenericKey<16>, page_id_t, GenericComparator<16>>;
 template class BPlusTreeInternalPage<GenericKey<32>, page_id_t, GenericComparator<32>>;
 template class BPlusTreeInternalPage<GenericKey<64>, page_id_t, GenericComparator<64>>;
-}  // namespace bustub
+} // namespace bustub

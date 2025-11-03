@@ -102,6 +102,7 @@ class BPlusTreeInternalPage : public BPlusTreePage {
    * @return 对应索引的子页指针（page_id）
    */
   auto ValueAt(int index) const -> ValueType;
+  auto BinarySearch(const KeyComparator &comparator, const KeyType &key) -> int;
 
   /**
    * 仅用于测试：将当前内部页的所有有效键转换为字符串，格式为"(key1,key2,key3,...)"
@@ -136,6 +137,15 @@ class BPlusTreeInternalPage : public BPlusTreePage {
     return kstr;
   }
 
+  void FirstInsert(const KeyType& key, const ValueType& left_page_id, const ValueType& right_page_id);
+
+  bool InsertKeyValue(const KeyComparator &comparator, const KeyType &key,
+                      const ValueType &value);
+  auto Find(const KeyComparator& comparator, const KeyType& key) ->page_id_t;
+
+
+
+  KeyType Split(B_PLUS_TREE_INTERNAL_PAGE_TYPE*new_internal_page, std::vector<page_id_t>& v);
  private:
   // 存储键的数组：大小为最大槽位数量（INTERNAL_PAGE_SLOT_CNT）
   // 类比：分类架上的标签列表，最多能放INTERNAL_PAGE_SLOT_CNT个标签（第一个标签位无效）

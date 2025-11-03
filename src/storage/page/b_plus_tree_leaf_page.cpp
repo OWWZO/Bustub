@@ -34,7 +34,11 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) {
   SetMaxSize(max_size);
   SetSize(0);
   SetPageType(IndexPageType::LEAF_PAGE);
+  SetFatherPageId(INVALID_PAGE_ID);
+  SetPageId(INVALID_PAGE_ID);
   num_tombstones_ = 0;
+  prev_page_id_=INVALID_PAGE_ID;
+  next_page_id_=INVALID_PAGE_ID;
 }
 
 /**
@@ -49,6 +53,11 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetTombstones() const -> std::vector<KeyType> {
     v.push_back(key_array_[tombstones_[i]]);
   }
   return v;
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetNumTombstones() -> size_t {
+  return num_tombstones_;
 }
 
 /**
@@ -73,21 +82,27 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType {
   return key_array_[index];
 }
 
+FULL_INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetMinKey() -> KeyType {
+  return key_array_[0];
+}
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::InsertKeyValue(const KeyComparator &comparator, const KeyType &key,
-                                                const ValueType &value) {
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::InsertKeyValue(const KeyComparator &comparator, const KeyType &key,
+                                                const ValueType &value) -> bool {
   if (GetSize() == 0) {
     key_array_[0] = key;
     rid_array_[0] = value;
-  } else {
+  }else {
     auto index = BinarySearch(comparator, key);
+    if (index==-1) {
+      return false;
+    }
     if (index == GetSize()) {
       key_array_[index] = key;
       rid_array_[index] = value;
     } else {
       for (int i = GetSize() - 1; i >= index; i--) {
-        //TODO(wwz): 还没有写maxsize限制逻辑
         key_array_[i + 1] = key_array_[i];
         rid_array_[i + 1] = rid_array_[i];
       }
@@ -96,6 +111,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::InsertKeyValue(const KeyComparator &comparator,
     }
   }
   ChangeSizeBy(1);
+  return true;
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
@@ -106,14 +122,36 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::BinarySearch(const KeyComparator &comparator,
   int result = GetSize();
   while (begin <= end) {
     int mid = (end - begin) / 2 + begin;
-    if (comparator(key_array_[mid], key) > 0) {
+    int res=comparator(key_array_[mid], key);
+    if (res > 0) {
       end = mid - 1;
       result = mid;
-    } else {
+    } else if (res < 0){
       begin = mid + 1;
+    }else {
+      return -1;
     }
   }
   return result;
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page) {
+  //设置其 next_page_id_ 为原节点的 next_page_id_
+  new_leaf_page->next_page_id_=next_page_id_;
+  new_leaf_page->prev_page_id_=GetPageId();
+  next_page_id_=new_leaf_page->GetPageId();
+  for (int mid=GetMaxSize()/2;mid<GetMaxSize();mid++) {
+    //由于已经是有序的 新叶子页所以直接顺序加入
+    new_leaf_page->key_array_[GetSize()]=key_array_[mid];
+    new_leaf_page->rid_array_[GetSize()]=rid_array_[mid];
+    new_leaf_page->ChangeSizeBy(1);
+    //被移出去的键值对加入墓碑数组
+    tombstones_[GetNumTombstones()]=mid;
+    num_tombstones_++;
+    //同时更新size
+    ChangeSizeBy(-1);
+  }
 }
 
 

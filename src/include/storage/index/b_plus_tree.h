@@ -100,8 +100,19 @@ class BPlusTree {
   // 向B+树中插入一个键值对（key是键，value是值）
   // 返回值：插入成功返回true，失败返回false
   // 类比：把一个标注了编号（key）的食材（value）放进仓库，放成功了返回true
+  /*
+   *步骤重复性分析：
+   * 插入元素导致 叶子页满 则分裂 分裂之后要建立新内页来管理
+   *内页满 则分裂 分裂之后要新内页来管理
+   *而且 刚好分裂函数里的移动操作 内页和内页的移动（无论是下层为叶子页还是内页）都能共用一个函数
+   *所以 递归设计能行的通 按上面步骤来写
+   *本质上是由插入导致的分裂 由自下而上引起 所以要写个pushup 递归自下而上实现守恒
+   *所以时刻以根页为点 检测是否为满 满了 就固定执行右建立加上建立逻辑 再以根为点
+   *
+  */
   auto Insert(const KeyType &key, const ValueType &value) -> bool;
 
+  void PushUp(page_id_t id);
   // 从B+树中删除一个键及其对应的值
   // 类比：根据食材编号（key），从仓库里把对应的食材（value）拿走
   void Remove(const KeyType &key);
@@ -151,6 +162,9 @@ class BPlusTree {
   // 类比：从批量食材处理文件里读取一堆操作（有的要入库，有的要出库），逐个执行
   void BatchOpsFromFile(const std::filesystem::path &file_name);
 
+  auto SplitForInternal(BPlusTreeInternalPage<
+                          KeyType, page_id_t, KeyComparator> *first_internal_write, BPlusTreeInternalPage<
+                          KeyType, page_id_t, KeyComparator> *second_internal_write) -> KeyType;
   // 缓冲池管理器（注意：不能改成普通的BufferPoolManager类型）
   // 类比：带操作记录功能的食材暂存区管理员（会记录每一次存取操作，方便追溯）
   std::shared_ptr<TracedBufferPoolManager> bpm_;

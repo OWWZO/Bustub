@@ -97,6 +97,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    */
   auto GetTombstones() const -> std::vector<KeyType>;
 
+  auto GetNumTombstones() -> size_t;
   // 辅助方法（Helper methods）：提供简单的属性访问或设置功能
 
   /**
@@ -167,9 +168,12 @@ class BPlusTreeLeafPage : public BPlusTreePage {
     return kstr;  // 返回格式化后的字符串
   }
 
-  void InsertKeyValue(const KeyComparator& comparator, const KeyType &key, const ValueType& value);
+  auto GetMinKey()->KeyType;
+  auto InsertKeyValue(const KeyComparator& comparator, const KeyType& key, const ValueType& value) -> bool;
 
   auto BinarySearch(const KeyComparator& comparator,const KeyType &key)->int;
+
+  void Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page);
  private:
   // 私有成员变量：只能在类内部访问，保证数据安全性
 
@@ -180,6 +184,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    */
   page_id_t next_page_id_;
 
+  page_id_t prev_page_id_;
   /**
    * 当前页面中墓碑的实际数量
    * 作用：记录tombstones_数组中已使用的元素个数（即已删除的条目数量）

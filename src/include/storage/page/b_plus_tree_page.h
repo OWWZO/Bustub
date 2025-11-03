@@ -129,17 +129,23 @@ class BPlusTreePage {
    */
   auto GetMinSize() const -> int;
 
+  void SetPageId(page_id_t id);
+  auto GetPageId()->page_id_t;
 
+  void SetFatherPageId(page_id_t id);
+  auto GetFatherPageId()->page_id_t;
  private:
 
   // 页面类型：标记当前页面是无效/叶子/内部页面（类比：货架类型标签）
   IndexPageType page_type_;
 
-  // 当前大小：记录页面中已存储的键值对数量（类比：货架当前存放物品数量）
+  // 当前大小：记录页面中已存储的键数量（类比：货架当前存放物品数量）
   int size_;
 
   // 最大大小：记录页面最多能存储的键值对数量（类比：货架最大能存放物品数量）
   int max_size_;
+  page_id_t page_id_;
+  page_id_t father_page_id;
 };
 
 }  // namespace bustub

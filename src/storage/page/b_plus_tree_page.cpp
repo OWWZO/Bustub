@@ -60,4 +60,20 @@ void BPlusTreePage::SetMaxSize(int size) {
  * But whether you will take ceil() or floor() depends on your implementation
  */
 auto BPlusTreePage::GetMinSize() const -> int { return ceil(static_cast<float>(max_size_) / 2); }
+
+void BPlusTreePage::SetPageId(page_id_t id) {
+  page_id_=id;
+}
+
+auto BPlusTreePage::GetPageId() -> page_id_t {
+  return page_id_;
+}
+
+void BPlusTreePage::SetFatherPageId(page_id_t id) {
+  father_page_id=id;
+}
+
+auto BPlusTreePage::GetFatherPageId() -> page_id_t {
+  return father_page_id;
+}
 } // namespace bustub

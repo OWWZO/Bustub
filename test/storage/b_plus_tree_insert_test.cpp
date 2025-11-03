@@ -101,51 +101,119 @@ TEST(BPlusTreeTests, BasicInsertTest) {
   delete bpm;
 }
 
-TEST(BPlusTreeTests, DISABLED_OptimisticInsertTest) {
+// 单元测试：测试B+树的乐观插入功能
+// 类比：这相当于在"图书馆书籍索引系统"中，测试一种高效的新书上架（插入）策略，
+// 先检查是否有书架（叶子节点）有空闲位置，再插入以减少索引结构调整的开销
+TEST(BPlusTreeTests, OptimisticInsertTest) {
+  // 1. 定义索引键的结构：解析"a bigint"语句，创建一个8字节大小的bigint类型键 schema
+  // 类比：制定"书籍索引卡"的格式——规定索引卡上只记录"书籍编号"（bigint类型，8字节），作为查找依据
   auto key_schema = ParseCreateStatement("a bigint");
+
+  // 2. 创建比较器：用于比较两个8字节索引键的大小（决定键在B+树中的排序位置）
+  // 类比：制作一把"尺子"，专门用来比较两张"书籍索引卡"上的编号大小，确定哪本排在前面
   GenericComparator<8> comparator(key_schema.get());
 
+  // 3. 创建内存磁盘管理器：模拟磁盘存储，但实际数据都存在内存中（无需真实读写硬盘）
+  // 类比：搭建一个"临时仓库"，所有书籍和索引卡都暂时存这里，不用搬去真实仓库（硬盘），操作更快
   auto disk_manager = std::make_unique<DiskManagerUnlimitedMemory>();
+
+  // 4. 创建缓冲池管理器：管理50个内存页，负责将"磁盘页"（实际是内存模拟的）加载到内存/写回
+  // 类比：设置一个"工作台"，最多同时放50本"书"（内存页），需要操作某本书时从临时仓库搬到工作台，用完后放回
   auto *bpm = new BufferPoolManager(50, disk_manager.get());
-  // allocate header_page
+
+  // 5. 分配B+树的根页面：向缓冲池申请一个新的空白页面，作为B+树的"根节点"（最顶层索引节点）
+  // 类比：在工作台上拿一张空白的"总索引页"，这张页是整个图书馆索引的起点（所有查找从这里开始）
   page_id_t page_id = bpm->NewPage();
-  // create b+ tree
+
+  // 6. 创建B+树实例：
+  // - 名称"foo_pk"（类似索引的标识）
+  // - 根节点使用刚分配的page_id
+  // - 依赖缓冲池bpm管理页面
+  // - 使用前面创建的comparator比较键
+  // - 非叶子节点最大能存4个键（对应5个子节点指针），叶子节点最大能存3个键（对应3个数据指针）
+  // 类比：搭建完整的"图书馆索引系统"，规定：
+  // - 总索引页（根节点）最多记4个编号范围（比如1-10,11-20等），每个范围指向更细的分索引页
+  // - 最底层的分索引页（叶子节点）最多记3个书籍编号，每个编号直接指向书籍存放位置
   BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", page_id, bpm, comparator, 4, 3);
+
+  // 7. 定义临时变量：index_key用于存储要插入的索引键，rid用于存储数据的物理位置（类似指针）
+  // 类比：准备一张空白的"书籍索引卡"（index_key）和一个"书籍位置标签"（rid），后续插入时填写
   GenericKey<8> index_key;
   RID rid;
 
+  // 8. 批量插入25条数据：模拟向B+树中插入大量初始数据
+  // 类比：向图书馆索引系统中，批量录入25本书的索引信息
   size_t num_keys = 25;
   for (size_t i = 0; i < num_keys; i++) {
+    // 计算RID的数值：将循环变量i拆分为两部分（高32位和低32位），存入RID（表示数据在磁盘上的位置）
+    // 类比：生成"书籍位置标签"——把书籍编号i拆成"仓库分区号"（i>>32）和"分区内货架号"（i&0xFFFFFFFF）
     int64_t value = i & 0xFFFFFFFF;
     rid.Set(static_cast<int32_t>(i >> 32), value);
+
+    // 设置索引键：将2*i作为索引键值（确保键是偶数，后续插入奇数键测试）
+    // 类比：在"书籍索引卡"上填写书籍编号为2*i（比如i=0填0，i=1填2，…，i=24填48）
     index_key.SetFromInteger(2 * i);
+
+    // 插入B+树：将索引键和对应的RID存入B+树
+    // 类比：把填好的"索引卡"和"位置标签"一起加入图书馆索引系统，系统自动按编号排序存放
     tree.Insert(index_key, rid);
   }
 
-  size_t to_insert = num_keys + 1;
+  // 9. 乐观插入前的准备：找到一个能直接插入的叶子节点（避免节点分裂）
+  // 类比：在插入新书前，先检查所有底层分索引页（叶子节点），找一张还没装满的（能直接加索引卡的）
+  size_t to_insert = num_keys + 1; // 初始化要插入的键值（默认值，后续会修改）
+
+  // 创建叶子节点迭代器：从B+树的根节点出发，遍历所有叶子节点
+  // 类比：拿一个"叶子页查找器"，从总索引页开始，依次找到所有底层的分索引页
   auto leaf = IndexLeaves<GenericKey<8>, RID, GenericComparator<8>>(tree.GetRootPageId(), bpm);
+
+  // 遍历所有叶子节点
   while (leaf.Valid()) {
+    // 检查当前叶子节点：如果插入1个键后仍未达到最大容量（3），说明能直接插入
+    // 类比：看当前分索引页是否还有空位——如果当前有2张索引卡，插入1张后变成3张（没超上限），就选这页
     if (((*leaf)->GetSize() + 1) < (*leaf)->GetMaxSize()) {
+      // 确定要插入的键值：取当前叶子节点的第一个键，加1（确保是未存在的奇数键，比如第一个键是0，加1得1）
+      // 类比：新书编号设为当前分索引页最小编号加1（比如当前页最小是0，新书编号就是1，保证插入后仍有序）
       to_insert = (*leaf)->KeyAt(0).GetAsInteger() + 1;
     }
-    ++leaf;
+    ++leaf; // 迭代器移动到下一个叶子节点（检查下一张分索引页）
   }
+
+  // 断言：确保找到了可插入的叶子节点（to_insert已被修改，不是初始值）
+  // 类比：确认一定找到了有空位的分索引页（不会出现所有页都满的情况）
   EXPECT_NE(to_insert, num_keys + 1);
 
+  // 10. 记录插入前的IO统计：获取缓冲池的读次数和写次数（用于后续对比）
+  // 类比：记录插入新书前，从临时仓库搬书到工作台的次数（读）和放回仓库的次数（写）
   auto base_reads = tree.bpm_->GetReads();
   auto base_writes = tree.bpm_->GetWrites();
 
-  index_key.SetFromInteger(to_insert);
-  int64_t value = to_insert & 0xFFFFFFFF;
-  rid.Set(static_cast<int32_t>(to_insert >> 32), value);
+  // 11. 准备要插入的数据：设置索引键和对应的RID
+  // 类比：填写新书的索引卡和位置标签
+  index_key.SetFromInteger(to_insert); // 索引键设为前面确定的to_insert（比如1）
+  int64_t value = to_insert & 0xFFFFFFFF; // 拆分to_insert为RID的低32位
+  rid.Set(static_cast<int32_t>(to_insert >> 32), value); // 拆分to_insert为RID的高32位（位置标签）
+
+  // 执行乐观插入：将数据插入B+树
+  // 类比：把新书的索引卡插入到之前找到的分索引页（有空位的页），并记录位置标签
   tree.Insert(index_key, rid);
 
+  // 12. 记录插入后的IO统计：获取插入后的读次数和写次数
+  // 类比：记录插入新书后，总的搬书次数（读）和放回次数（写）
   auto new_reads = tree.bpm_->GetReads();
   auto new_writes = tree.bpm_->GetWrites();
 
+  // 13. 断言插入的IO开销符合预期：
+  // - 读次数增加（需要读取叶子节点到内存）
+  // - 写次数只增加1（只需将修改后的叶子节点写回，无需分裂节点）
+  // 类比：
+  // - 搬书次数增加（必须把要插入的分索引页搬到工作台，所以读次数加1）
+  // - 放回次数只加1（修改后的分索引页放回仓库，无需处理其他页，所以写次数加1）
   EXPECT_GT(new_reads - base_reads, 0);
   EXPECT_EQ(new_writes - base_writes, 1);
 
+  // 14. 释放缓冲池管理器内存：避免内存泄漏
+  // 类比：用完工作台后，清理工作台，释放占用的空间
   delete bpm;
 }
 

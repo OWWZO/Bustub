@@ -295,6 +295,22 @@ void BPLUSTREE_TYPE::BatchOpsFromFile(const std::filesystem::path &file_name) {
   input.close();
 }
 
+//适用于当上层是内页 下面是叶子页的情况
+FULL_INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::SplitForInternal(
+    BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *first_internal_write,
+    BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *second_internal_write) -> KeyType {
+  std::vector<page_id_t> v;
+  auto key= first_internal_write->Split(second_internal_write,v);
+  //取出来 将新内页的元素 father_id 全部改了
+  for (auto &item:v) {
+    auto temp_guard=bpm_->WritePage(item);
+    auto write=temp_guard.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+    write->SetFatherPageId(second_internal_write->GetPageId());
+  }
+  return key;
+}
+
 /**
  * @brief Convert A B+ tree into a Printable B+ tree
  *
