@@ -97,6 +97,8 @@ class BPlusTree {
   // 类比：检查仓库里是不是没有任何食材
   auto IsEmpty() const -> bool;
 
+  auto LocateKey(const KeyType &key, const BPlusTreeHeaderPage* header_page) -> page_id_t;
+
   // 向B+树中插入一个键值对（key是键，value是值）
   // 返回值：插入成功返回true，失败返回false
   // 类比：把一个标注了编号（key）的食材（value）放进仓库，放成功了返回true
@@ -112,7 +114,21 @@ class BPlusTree {
   */
   auto Insert(const KeyType &key, const ValueType &value) -> bool;
 
-  void PushUp(page_id_t id);
+  //原理 插入导致的变动 写个递归来逐层检验父页的变动是否要进行处理
+  void PushUp(page_id_t id, WritePageGuard& write_guard);
+
+  void RedistributeForLeaf(page_id_t page_id, B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write);
+  void RedistributeForInternal(page_id_t page_id,
+                               BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *internal_write);
+
+  void MergeForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write);
+  void MergeForInternal(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *internal_write);
+  void CheckForInternal(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* internal_write);
+
+  auto IsDistributeForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write) -> page_id_t;
+  auto IsDistributeForInternal(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* internal_write) -> page_id_t;
+
+  void CheckForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write);
   // 从B+树中删除一个键及其对应的值
   // 类比：根据食材编号（key），从仓库里把对应的食材（value）拿走
   void Remove(const KeyType &key);

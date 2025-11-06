@@ -65,7 +65,17 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) {
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueIndex(const ValueType &value) const -> int {
-  for (int i = 0; i < INTERNAL_PAGE_SLOT_CNT; i++) {
+  for (int i = 0; i < GetSize(); i++) {
+    if (page_id_array_[i] == value) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueIndexForPage_id_t(const page_id_t &value) const -> int {
+  for (int i = 0; i < GetSize(); i++) {
     if (page_id_array_[i] == value) {
       return i;
     }
@@ -87,7 +97,7 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueAt(int index) const -> ValueType {
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::BinarySearch(const KeyComparator &comparator,
-                                              const KeyType &key) -> int {
+                                              const KeyType &key) const -> int {
   int begin = 0;
   int end = GetSize() - 1;
   int result = GetSize();
@@ -138,8 +148,105 @@ bool B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertKeyValue(const KeyComparator &compara
   return true;
 }
 
+//将内页里的key键值对 更新成传入叶子页的首键值对 对应左
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Find(const KeyComparator& comparator, const KeyType &key) -> page_id_t {
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::UpdateKey(KeyType key, std::pair<KeyType,ValueType> pair, const KeyComparator &comparator)
+  -> void {
+  auto index=MatchKey(key,comparator);
+    key_array_[index]=pair.first;
+    page_id_array_[index]=pair.second;
+}
+
+//吸收函数 将page里的键值对吸收到末尾 但是不做删除处理 外部负责处理
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Absorb(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *page) -> KeyType {
+  auto begin_key=page->KeyAt(0);
+  for (int i=0;i<page->GetSize();i++) {
+    InsertBack(std::make_pair(page->key_array_[i], page->page_id_array_[i]));
+  }
+  //更新大小
+  page->ChangeSizeBy(-page->GetSize());
+  return begin_key;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertBack(std::pair<KeyType, page_id_t> pair){
+  key_array_[GetSize()]=pair.first;
+  page_id_array_[GetSize()]=pair.second;
+  ChangeSizeBy(1);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::MatchKey(KeyType key, const KeyComparator &comparator) -> int {
+  int begin = 0;
+  int end = GetSize() - 1;
+  while (begin <= end) {
+    int mid = (end - begin) / 2 + begin;
+    int res=comparator(key_array_[mid], key);
+    if (res > 0) {
+      end = mid - 1;
+    } else if (res < 0){
+      begin = mid + 1;
+    }else {
+      return mid;
+    }
+  }
+  return -1;
+}
+
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::PopBack() -> std::pair<KeyType, ValueType> {
+  ChangeSizeBy(-1);
+  return std::make_pair(key_array_[GetSize()],page_id_array_[GetSize()]);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::PopFront() -> std::pair<KeyType, ValueType> {
+  auto pair=std::make_pair(key_array_[0],page_id_array_[0]);
+  for (int i=0;i<GetSize();i++) {
+    key_array_[i]=key_array_[i+1];
+    page_id_array_[i]=page_id_array_[i+1];
+  }
+  ChangeSizeBy(-1);
+  return pair;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::GetPrePageId(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* father_write) -> page_id_t {
+  //返回这个页id的物理下标
+  auto index= father_write->ValueIndexForPage_id_t(GetPageId());
+  if (index==0) {
+    return INVALID_PAGE_ID;
+  }
+  //直接定位到左页id
+  return father_write->page_id_array_[index-1];
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertBegin(std::pair<KeyType, ValueType> pair){
+  for (int i=GetSize()-1;i>=0;i--) {
+    key_array_[i+1]=key_array_[i];
+    page_id_array_[i+1]=page_id_array_[i];
+  }
+  key_array_[0]=pair.first;
+  page_id_array_[0]=pair.second;
+  ChangeSizeBy(1);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::GetNextPageId(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* father_write) -> page_id_t {
+  //返回这个页id的物理下标
+  auto index= father_write->ValueIndexForPage_id_t(GetPageId());
+  if (index==0) {
+    return INVALID_PAGE_ID;
+  }
+  //直接定位到左页id
+  return father_write->page_id_array_[index+1];
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Find(const KeyComparator& comparator, const KeyType &key) const -> page_id_t {
   auto index=BinarySearch(comparator,key);
   if (index==-1) {
     return -1;
@@ -147,12 +254,19 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Find(const KeyComparator& comparator, const
   return page_id_array_[index];
 }
 
-//这是内页下是两个叶子页的分裂逻辑
+INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_INTERNAL_PAGE_TYPE::DeletePair(int index) {
+  for (int i=index;i<GetSize();i++) {
+    key_array_[i]=key_array_[i+1];
+    page_id_array_[i]=page_id_array_[i+1];
+  }
+  ChangeSizeBy(-1);
+}
+
 INDEX_TEMPLATE_ARGUMENTS//只需要移动下一层的id 因为是链式结构
-KeyType B_PLUS_TREE_INTERNAL_PAGE_TYPE::Split(
-    B_PLUS_TREE_INTERNAL_PAGE_TYPE*new_internal_page, std::vector<page_id_t>& v) {
-  int mid;
-  for (mid=(GetMaxSize()+1)/2+1;mid<GetMaxSize();mid++) {
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Split(
+    B_PLUS_TREE_INTERNAL_PAGE_TYPE *new_internal_page, std::vector<page_id_t> &v) -> KeyType {
+  for (int mid=GetMinSize();mid<GetMaxSize();mid++) {
     //由于已经是有序的 新内页所以直接顺序加入
     new_internal_page->key_array_[GetSize()]=key_array_[mid];
     new_internal_page->page_id_array_[GetSize()]=page_id_array_[mid];
@@ -162,7 +276,7 @@ KeyType B_PLUS_TREE_INTERNAL_PAGE_TYPE::Split(
     //同时更新size 不需要物理删除 直接通过size来逻辑删除
     ChangeSizeBy(-1);
   }
-  return key_array_[mid];
+  return key_array_[GetMinSize()];
 }
 
 

@@ -94,6 +94,7 @@ class BPlusTreeInternalPage : public BPlusTreePage {
    * @return 该指针在page_id_array_中的索引；若未找到，可能返回-1或其他无效值（取决于具体实现）
    */
   auto ValueIndex(const ValueType &value) const -> int;
+  auto ValueIndexForPage_id_t(const page_id_t& value) const -> int;
 
   /**
    * 获取指定索引位置的子页指针
@@ -102,7 +103,7 @@ class BPlusTreeInternalPage : public BPlusTreePage {
    * @return 对应索引的子页指针（page_id）
    */
   auto ValueAt(int index) const -> ValueType;
-  auto BinarySearch(const KeyComparator &comparator, const KeyType &key) -> int;
+  auto BinarySearch(const KeyComparator &comparator, const KeyType &key) const -> int;
 
   /**
    * 仅用于测试：将当前内部页的所有有效键转换为字符串，格式为"(key1,key2,key3,...)"
@@ -141,8 +142,20 @@ class BPlusTreeInternalPage : public BPlusTreePage {
 
   bool InsertKeyValue(const KeyComparator &comparator, const KeyType &key,
                       const ValueType &value);
-  auto Find(const KeyComparator& comparator, const KeyType& key) ->page_id_t;
+  auto UpdateKey(KeyType key, std::pair<KeyType, ValueType> pair, const KeyComparator &comparator) -> void;
+  auto Absorb(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *page) -> KeyType;
+  void InsertBack(std::pair<KeyType, page_id_t> pair);
 
+  auto MatchKey(KeyType key, const KeyComparator &comparator) -> int;
+  auto PopBack() -> std::pair<KeyType, ValueType>;
+  auto PopFront() -> std::pair<KeyType, ValueType>;
+
+  page_id_t GetPrePageId(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* father_write);
+  void InsertBegin(std::pair<KeyType, ValueType> pair);
+  auto GetNextPageId(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* father_write) -> page_id_t;
+
+  auto Find(const KeyComparator& comparator, const KeyType& key) const ->page_id_t;
+  void DeletePair(int index);
 
 
   KeyType Split(B_PLUS_TREE_INTERNAL_PAGE_TYPE*new_internal_page, std::vector<page_id_t>& v);

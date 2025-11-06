@@ -69,6 +69,11 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetNextPageId() const -> page_id_t {
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetPrePageId() const -> page_id_t {
+  return prev_page_id_;
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::SetNextPageId(page_id_t next_page_id) {
   next_page_id_ = next_page_id;
 }
@@ -80,6 +85,11 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::SetNextPageId(page_id_t next_page_id) {
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::KeyAt(int index) const -> KeyType {
   return key_array_[index];
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::ValueAt(int index) const -> ValueType {
+  return rid_array_[index];
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
@@ -135,6 +145,106 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::BinarySearch(const KeyComparator &comparator,
   return result;
 }
 
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::MatchKey(KeyType key, const KeyComparator &comparator) -> int {
+  int begin = 0;
+  int end = GetSize() - 1;
+  while (begin <= end) {
+    int mid = (end - begin) / 2 + begin;
+    int res=comparator(key_array_[mid], key);
+    if (res > 0) {
+      end = mid - 1;
+    } else if (res < 0){
+      begin = mid + 1;
+    }else {
+      return mid;
+    }
+  }
+  return -1;
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::Delete(KeyType key, const KeyComparator& comparator) {
+  //找到与key匹配的下标
+  auto index= MatchKey(key,comparator);
+  if (index==-1) {
+    return;
+  }
+  for (;index<GetSize();index++) {
+    key_array_[index]=key_array_[index+1];
+    rid_array_[index]=rid_array_[index+1];
+  }
+  ChangeSizeBy(-1);
+}
+
+//吸收函数 将page里的键值对吸收到末尾 但是不做删除处理 外部负责处理
+FULL_INDEX_TEMPLATE_ARGUMENTS
+KeyType B_PLUS_TREE_LEAF_PAGE_TYPE::Absorb(B_PLUS_TREE_LEAF_PAGE_TYPE *page) {
+  auto begin_key=page->KeyAt(0);
+  for (int i=0;i<page->GetSize();i++) {
+    InsertBack(std::make_pair(page->key_array_[i], page->rid_array_[i]));
+  }
+  //更新大小
+  page->ChangeSizeBy(-page->GetSize());
+  return begin_key;
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::FindAndPush(const KeyComparator &comparator,
+                                      const KeyType &key, std::vector<ValueType> *result) const {
+  int begin = 0;
+  int end = GetSize() - 1;
+  while (begin <= end) {
+    int mid = (end - begin) / 2 + begin;
+    int res=comparator(key_array_[mid], key);
+    if (res > 0) {
+      end = mid - 1;
+    } else if (res < 0){
+      begin = mid + 1;
+    }else {
+      result->push_back(rid_array_[mid]);
+      begin=mid+1;
+    }
+  }
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::InsertBegin(std::pair<KeyType, ValueType> pair){
+    for (int i=GetSize()-1;i>=0;i--) {
+      key_array_[i+1]=key_array_[i];
+      rid_array_[i+1]=rid_array_[i];
+    }
+  key_array_[0]=pair.first;
+  rid_array_[0]=pair.second;
+  ChangeSizeBy(1);
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::InsertBack(std::pair<KeyType, ValueType> pair){
+  key_array_[GetSize()]=pair.first;
+  rid_array_[GetSize()]=pair.second;
+  ChangeSizeBy(1);
+}
+
+//键值对删除然后返回出来
+FULL_INDEX_TEMPLATE_ARGUMENTS
+std::pair<KeyType, ValueType> B_PLUS_TREE_LEAF_PAGE_TYPE::PopBack() {
+  ChangeSizeBy(-1);
+  return std::make_pair(key_array_[GetSize()],rid_array_[GetSize()]);
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+std::pair<KeyType, ValueType> B_PLUS_TREE_LEAF_PAGE_TYPE::PopFront() {
+  auto pair=std::make_pair(key_array_[0],(rid_array_[0]));
+  for (int i=0;i<GetSize();i++) {
+    key_array_[i]=key_array_[i+1];
+    rid_array_[i]=rid_array_[i+1];
+  }
+  ChangeSizeBy(-1);
+  return pair;
+}
+
 FULL_INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page) {
   //设置其 next_page_id_ 为原节点的 next_page_id_
@@ -146,9 +256,6 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page
     new_leaf_page->key_array_[GetSize()]=key_array_[mid];
     new_leaf_page->rid_array_[GetSize()]=rid_array_[mid];
     new_leaf_page->ChangeSizeBy(1);
-    //被移出去的键值对加入墓碑数组
-    tombstones_[GetNumTombstones()]=mid;
-    num_tombstones_++;
     //同时更新size
     ChangeSizeBy(-1);
   }

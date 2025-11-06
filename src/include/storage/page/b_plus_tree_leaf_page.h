@@ -107,6 +107,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    * 类比：查看电话簿封面上写的"下一本电话簿编号"
    */
   auto GetNextPageId() const -> page_id_t;
+  auto GetPrePageId() const -> page_id_t;
 
   /**
    * @brief 设置下一个页面的ID
@@ -125,6 +126,9 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    */
   auto KeyAt(int index) const -> KeyType;
 
+  auto ValueAt(int index) const -> ValueType;
+
+  KeyType Absorb(B_PLUS_TREE_LEAF_PAGE_TYPE *page);
   /**
    * @brief 仅用于测试：将当前叶子页面的所有键和墓碑键格式化为字符串
    * @return 格式化后的字符串，格式为"(tombkey1, tombkey2, ...|key1,key2,key3,...)"
@@ -172,6 +176,17 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   auto InsertKeyValue(const KeyComparator& comparator, const KeyType& key, const ValueType& value) -> bool;
 
   auto BinarySearch(const KeyComparator& comparator,const KeyType &key)->int;
+
+  int MatchKey(KeyType key, const KeyComparator &comparator);
+
+  void Delete(KeyType key, const KeyComparator& comparator);
+
+  void FindAndPush(const KeyComparator &comparator, const KeyType &key, std::vector<ValueType> *result) const;
+  void InsertBegin(std::pair<KeyType, ValueType> pair);
+  void InsertBack(std::pair<KeyType, ValueType> pair);
+
+  auto PopBack() -> std::pair<KeyType, ValueType>;
+  std::pair<KeyType, ValueType> PopFront();
 
   void Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page);
  private:
