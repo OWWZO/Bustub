@@ -95,6 +95,8 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueAt(int index) const -> ValueType {
   return page_id_array_[index];
 }
 
+
+
 INDEX_TEMPLATE_ARGUMENTS //给插入用的
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::BinarySearch(const KeyComparator &comparator,
                                               const KeyType &key) const -> int {
@@ -110,7 +112,7 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::BinarySearch(const KeyComparator &comparato
     } else if (res < 0){
       begin = mid + 1;
     }else {
-      return -1;
+      return mid+1; //抵消外部的-1;
     }
   }
   return result;
