@@ -438,24 +438,35 @@ void BPLUSTREE_TYPE::RedistributeForInternal(page_id_t page_id, BPlusTreeInterna
 FULL_INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::MergeForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write) {
     //获取左页信息
-  auto left_guard=bpm_->WritePage(leaf_write->GetPrePageId());
-  auto left_write=left_guard.template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
-  //如果父亲相同 说明可行 视为可合并对象
-  if (left_write->GetFatherPageId()==leaf_write->GetFatherPageId()) {
-    //将当前页融入左页
-    auto begin_key= left_write->Absorb(leaf_write);
-    //然后删除父页里的键
-    auto father_id=leaf_write->GetFatherPageId();
-    auto father_page=bpm_->WritePage(father_id);
-    auto father_write=father_page.template AsMut<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
-    auto index= father_write->MatchKey(begin_key,comparator_);
-    father_write->DeletePair(index);
+  auto left_id=leaf_write->GetPrePageId();
+  if (left_id!=INVALID_PAGE_ID) {
+    auto left_guard=bpm_->WritePage(left_id);
+    auto left_write=left_guard.template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+    //如果父亲相同 说明可行 视为可合并对象
+    if (left_write->GetFatherPageId()==leaf_write->GetFatherPageId()) {
+      //将当前页的nextid 赋值给leftwrite的nextid
+      left_write->SetNextPageId(leaf_write->GetNextPageId());
+      //将当前页融入左页
+      auto begin_key= left_write->Absorb(leaf_write);
+      //然后删除父页里的键
+      auto father_id=leaf_write->GetFatherPageId();
+      auto father_page=bpm_->WritePage(father_id);
+      auto father_write=father_page.template AsMut<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
+      auto index= father_write->MatchKey(begin_key,comparator_);
+      father_write->DeletePair(index);
+      return;
+    }
+  }
+  auto right_id=leaf_write->GetNextPageId();
+  if (right_id==INVALID_PAGE_ID) {
     return;
   }
   //选右页为目标来合并
-  auto right_guard=bpm_->WritePage(leaf_write->GetNextPageId());
+  auto right_guard=bpm_->WritePage(right_id);
   auto right_write=right_guard. template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
   if (right_write->GetFatherPageId()==right_write->GetFatherPageId()) {
+    //将当前页的nextid 设置成rightwrite的nextid
+    leaf_write->SetNextPageId(right_write->GetNextPageId());
     //将右页融入当前页
     auto begin_key= leaf_write->Absorb(right_write);
     //然后删除父页里的键
@@ -471,22 +482,32 @@ void BPLUSTREE_TYPE::MergeForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write) {
 FULL_INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::MergeForInternal(BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>* internal_write) {
   auto father_page_id=internal_write->GetFatherPageId();
+  if (father_page_id==INVALID_PAGE_ID) {
+    return;
+  }
   auto father_guard=bpm_->WritePage(father_page_id);
   auto father_write=father_guard.template AsMut<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
   //获取左页信息
-  auto left_guard=bpm_->WritePage(internal_write->GetPrePageId(father_write));
-  auto left_write=left_guard.template AsMut<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
-  //如果父亲相同 说明可行 视为可合并对象
-  if (left_write->GetFatherPageId()==internal_write->GetFatherPageId()) {
-    //将当前页融入左页
-    auto begin_key= left_write->Absorb(internal_write);
-    //然后删除父页里的键
-    auto index= father_write->MatchKey(begin_key,comparator_);
-    father_write->DeletePair(index);
+  auto left_id=internal_write->GetPrePageId(father_write);
+  if (left_id!=INVALID_PAGE_ID) {
+    auto left_guard=bpm_->WritePage(left_id);
+    auto left_write=left_guard.template AsMut<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
+    //如果父亲相同 说明可行 视为可合并对象
+    if (left_write->GetFatherPageId()==internal_write->GetFatherPageId()) {
+      //将当前页融入左页
+      auto begin_key= left_write->Absorb(internal_write);
+      //然后删除父页里的键
+      auto index= father_write->MatchKey(begin_key,comparator_);
+      father_write->DeletePair(index);
+      return;
+    }
+  }
+  auto right_id=internal_write->GetNextPageId(father_write);
+  if (right_id==INVALID_PAGE_ID) {
     return;
   }
   //选右页为目标来合并
-  auto right_guard=bpm_->WritePage(internal_write->GetNextPageId(father_write));
+  auto right_guard=bpm_->WritePage(right_id);
   auto right_write=right_guard. template AsMut<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
   if (right_write->GetFatherPageId()==right_write->GetFatherPageId()) {
     //将右页融入当前页
@@ -571,6 +592,12 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
   auto leaf_guard=bpm_->WritePage(page_id);
   auto leaf_write=leaf_guard.template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
   leaf_write->Delete(key,comparator_);
+  //如果有父亲页 则清除父亲页的有关数据 TODO
+  if (leaf_write->GetFatherPageId()!=INVALID_PAGE_ID) {
+    auto father_guard=bpm_->WritePage(leaf_write->GetFatherPageId());
+    auto father_write=father_guard.template AsMut<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
+//TODO
+  }
   //检测是否少于最小键值对个数
   CheckForLeaf(leaf_write);
 }

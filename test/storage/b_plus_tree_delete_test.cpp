@@ -56,8 +56,10 @@ TEST(BPlusTreeTests,DeleteTestNoIterator) {
     int64_t value = key & 0xFFFFFFFF;
     EXPECT_EQ(rids[0].GetSlotNum(), value);
   }
-
-  std::vector<int64_t> remove_keys = {1, 5, 3, 4};
+  index_key.SetFromInteger(1);
+  tree.Remove(index_key);
+  tree.Draw(bpm, "b_plus_tree.dot");
+  std::vector<int64_t> remove_keys = {5, 3, 4};
   for (auto key : remove_keys) {
     index_key.SetFromInteger(key);
     tree.Remove(index_key);

@@ -240,9 +240,6 @@ INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::GetNextPageId( const BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* father_write) -> page_id_t {
   //返回这个页id的物理下标
   auto index= father_write->ValueIndexForPage_id_t(GetPageId());
-  if (index==0) {
-    return INVALID_PAGE_ID;
-  }
   //直接定位到左页id
   return father_write->page_id_array_[index+1];
 }
