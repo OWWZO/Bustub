@@ -185,6 +185,9 @@ class BPlusTree {
   // 类比：带操作记录功能的食材暂存区管理员（会记录每一次存取操作，方便追溯）
   std::shared_ptr<TracedBufferPoolManager> bpm_;
 
+  auto GetLeafMaxSize()->int;
+
+  auto GetInternalMaxSize()->int;
  private:
   // 辅助绘图函数：将指定页面（page_id）和页面数据（page）写入输出流（out）
   // 类比：把某个货架（page_id）的布局和里面的食材（page）画到图纸上（out）

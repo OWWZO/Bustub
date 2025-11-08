@@ -28,7 +28,6 @@ namespace bustub {
 下一页 ID 以及设置最大大小。
 @param max_size 叶子节点的最大大小
 */
-//TODO(wwz): next_page_id_ 页id 父页id还未初始化
 FULL_INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) {
   SetMaxSize(max_size);
@@ -190,6 +189,7 @@ KeyType B_PLUS_TREE_LEAF_PAGE_TYPE::Absorb(B_PLUS_TREE_LEAF_PAGE_TYPE *page) {
   return begin_key;
 }
 
+//当查找不到时 直接返回索引0上的值
 FULL_INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::FindAndPush(const KeyComparator &comparator,
                                       const KeyType &key, std::vector<ValueType> *result) const {
@@ -253,8 +253,8 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page
   next_page_id_=new_leaf_page->GetPageId();
   for (int mid=GetMaxSize()/2;mid<GetMaxSize();mid++) {
     //由于已经是有序的 新叶子页所以直接顺序加入
-    new_leaf_page->key_array_[GetSize()]=key_array_[mid];
-    new_leaf_page->rid_array_[GetSize()]=rid_array_[mid];
+    new_leaf_page->key_array_[new_leaf_page->GetSize()]=key_array_[mid];
+    new_leaf_page->rid_array_[new_leaf_page->GetSize()]=rid_array_[mid];
     new_leaf_page->ChangeSizeBy(1);
     //同时更新size
     ChangeSizeBy(-1);

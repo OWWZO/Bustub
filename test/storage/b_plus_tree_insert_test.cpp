@@ -96,7 +96,6 @@ TEST(BPlusTreeTests, BasicInsertTest) {
   // 断言4：叶节点中第0个位置的键，与我们插入的键相等（比较结果为0表示相等）
   // 类比：确认"第一本索引册"里第1条记录的图书编号，就是我们插入的42
   ASSERT_EQ(comparator(root_as_leaf->KeyAt(0), index_key), 0);
-
   // 8. 释放缓冲池管理器的内存，好比"关闭图书馆前台"，回收管理员占用的资源（避免内存泄漏）
   delete bpm;
 }
@@ -143,7 +142,7 @@ TEST(BPlusTreeTests, OptimisticInsertTest) {
 
   // 8. 批量插入25条数据：模拟向B+树中插入大量初始数据
   // 类比：向图书馆索引系统中，批量录入25本书的索引信息
-  size_t num_keys = 25;
+  size_t num_keys =25;//25
   for (size_t i = 0; i < num_keys; i++) {
     // 计算RID的数值：将循环变量i拆分为两部分（高32位和低32位），存入RID（表示数据在磁盘上的位置）
     // 类比：生成"书籍位置标签"——把书籍编号i拆成"仓库分区号"（i>>32）和"分区内货架号"（i&0xFFFFFFFF）
@@ -158,7 +157,7 @@ TEST(BPlusTreeTests, OptimisticInsertTest) {
     // 类比：把填好的"索引卡"和"位置标签"一起加入图书馆索引系统，系统自动按编号排序存放
     tree.Insert(index_key, rid);
   }
-
+  tree.Draw(bpm, "b_plus_tree.dot");
   // 9. 乐观插入前的准备：找到一个能直接插入的叶子节点（避免节点分裂）
   // 类比：在插入新书前，先检查所有底层分索引页（叶子节点），找一张还没装满的（能直接加索引卡的）
   size_t to_insert = num_keys + 1; // 初始化要插入的键值（默认值，后续会修改）
@@ -241,7 +240,7 @@ TEST(BPlusTreeTests, InsertTest1NoIterator) {
 
   bool is_present;
   std::vector<RID> rids;
-
+  tree.Draw(bpm, "b_plus_tree.dot");
   for (auto key : keys) {
     rids.clear();
     index_key.SetFromInteger(key);

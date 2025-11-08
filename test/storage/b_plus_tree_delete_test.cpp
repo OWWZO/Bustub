@@ -24,7 +24,7 @@ namespace bustub {
 
 using bustub::DiskManagerUnlimitedMemory;
 
-TEST(BPlusTreeTests, DISABLED_DeleteTestNoIterator) {
+TEST(BPlusTreeTests,DeleteTestNoIterator) {
   // create KeyComparator and index schema
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());
@@ -87,7 +87,6 @@ TEST(BPlusTreeTests, DISABLED_DeleteTestNoIterator) {
   tree.Remove(index_key);
   auto root_page_id = tree.GetRootPageId();
   ASSERT_EQ(root_page_id, INVALID_PAGE_ID);
-
   delete bpm;
 }
 

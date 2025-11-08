@@ -150,11 +150,12 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   auto PopBack() -> std::pair<KeyType, ValueType>;
   auto PopFront() -> std::pair<KeyType, ValueType>;
 
-  page_id_t GetPrePageId(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* father_write);
+  page_id_t GetPrePageId(const BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* father_write);
   void InsertBegin(std::pair<KeyType, ValueType> pair);
-  auto GetNextPageId(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* father_write) -> page_id_t;
+  auto GetNextPageId(const BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* father_write) -> page_id_t;
 
   auto Find(const KeyComparator& comparator, const KeyType& key) const ->page_id_t;
+
   void DeletePair(int index);
 
 
