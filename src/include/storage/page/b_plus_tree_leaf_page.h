@@ -2,6 +2,7 @@
 
 // 引入标准库头文件，提供字符串、pair（键值对）、向量（动态数组）的功能支持
 // 类比：就像厨师做菜前准备好各种基础食材（蔬菜、肉类、调料），这些头文件提供了代码中要用到的基础数据结构工具
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -29,12 +30,13 @@ namespace bustub {
 // 类比：就像商店规定"购买数量不能为负数，若输入负数则按0处理"，确保墓碑数量始终是合法的非负值
 #define LEAF_PAGE_TOMB_CNT ((NumTombs < 0) ? LEAF_PAGE_DEFAULT_TOMB_CNT : NumTombs)
 
-// 宏定义：计算叶子页面能存储的"键值对插槽数量"（即最多能存多少个键值对）
-// 计算逻辑：(页面总大小 - 头部大小 - 墓碑数量变量的大小 - 所有墓碑的总大小) / 每个键值对的大小
-// 类比：就像计算一个书包能装多少本书：(书包总容积 - 书包夹层（头部）的体积 - 书包标签（墓碑数量变量）的体积 - 所有书签（墓碑）的总体积) / 每本书（键值对）的体积
-#define LEAF_PAGE_SLOT_CNT                                                                               \
-  ((BUSTUB_PAGE_SIZE - LEAF_PAGE_HEADER_SIZE - sizeof(size_t) - (LEAF_PAGE_TOMB_CNT * sizeof(size_t))) / \
-   (sizeof(KeyType) + sizeof(ValueType)))  // NOLINT（忽略编译器的某些警告）
+
+#define LEAF_PAGE_FIXED_METADATA_SIZE                                                 \
+  (LEAF_PAGE_HEADER_SIZE + 3 * sizeof(page_id_t) + sizeof(size_t) + sizeof(KeyType) + \
+   sizeof(uint64_t) + (LEAF_PAGE_TOMB_CNT * sizeof(size_t)))
+
+#define LEAF_PAGE_SLOT_CNT \
+  ((BUSTUB_PAGE_SIZE - LEAF_PAGE_FIXED_METADATA_SIZE) / (sizeof(KeyType) + sizeof(ValueType)))  // NOLINT（忽略编译器的某些警告）
 
 /**
  * B+树叶子页面类的功能说明：
@@ -96,8 +98,9 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    * 类比：根据电话簿中"删除线"的条目编号（比如第3条），找到对应的名字（键），整理成一个"已删除名单"
    */
   auto GetTombstones() const -> std::vector<KeyType>;
+  auto SetNumTombstones(size_t num) -> void;
+  auto GetNumTombstones() const -> size_t;
 
-  auto GetNumTombstones() -> size_t;
   // 辅助方法（Helper methods）：提供简单的属性访问或设置功能
 
   /**
@@ -117,6 +120,8 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    */
   void SetNextPageId(page_id_t next_page_id);
 
+  void SetPrePageId(page_id_t pre_page_id);
+
   /**
    * @brief 获取指定索引位置的键
    * @param index：要获取的键的索引（从0开始）
@@ -129,6 +134,11 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   auto ValueAt(int index) const -> ValueType;
 
   KeyType Absorb(B_PLUS_TREE_LEAF_PAGE_TYPE *page);
+  void MarkTomb(int index);
+  bool IsTombstone(int index) const;
+  bool IsUpdate();
+  bool IsEmpty();
+  void CleanupTombs();
   /**
    * @brief 仅用于测试：将当前叶子页面的所有键和墓碑键格式化为字符串
    * @return 格式化后的字符串，格式为"(tombkey1, tombkey2, ...|key1,key2,key3,...)"
@@ -173,13 +183,15 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   }
 
   auto GetMinKey()->KeyType;
+  auto IsBegin() -> bool;
+  auto SetBegin(bool set) -> void;
   auto InsertKeyValue(const KeyComparator& comparator, const KeyType& key, const ValueType& value) -> bool;
 
   auto BinarySearch(const KeyComparator& comparator,const KeyType &key)->int;
 
   int MatchKey(KeyType key, const KeyComparator &comparator);
 
-  void Delete(KeyType key, const KeyComparator& comparator);
+  void Delete(const KeyType key, const KeyComparator &comparator);
 
   void FindAndPush(const KeyComparator &comparator, const KeyType &key, std::vector<ValueType> *result) const;
   void InsertBegin(std::pair<KeyType, ValueType> pair);
@@ -187,10 +199,14 @@ class BPlusTreeLeafPage : public BPlusTreePage {
 
   auto PopBack() -> std::pair<KeyType, ValueType>;
   std::pair<KeyType, ValueType> PopFront();
+  auto GetBeforeFirstKey() const -> KeyType;
 
   void Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page);
+
  private:
   // 私有成员变量：只能在类内部访问，保证数据安全性
+  // 注意：成员变量顺序很重要，影响内存对齐和布局
+  // 顺序原则：先放置固定大小的成员，再放置数组，最后放置小的bool类型
 
   /**
    * 下一个叶子页面的ID
@@ -199,11 +215,13 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    */
   page_id_t next_page_id_;
 
-  page_id_t prev_page_id_;
+  page_id_t pre_page_id_;
+
   /**
    * 当前页面中墓碑的实际数量
    * 作用：记录tombstones_数组中已使用的元素个数（即已删除的条目数量）
    * 类比：电话簿中"已删除条目"的计数，比如"共5条已删除记录"
+   * 注意：size_t 在64位系统上是8字节，需要8字节对齐。将pre_page_id_放在前面，这样next_page_id_和pre_page_id_共8字节，正好对齐到8字节边界
    */
   size_t num_tombstones_;
 
@@ -226,6 +244,11 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    */
   ValueType rid_array_[LEAF_PAGE_SLOT_CNT];
 
+  bool is_begin;
+
+  bool is_update_;//用于remove操作
+
+  KeyType before_first_key_;
   // 注释：2025年春季学期补充，允许根据需要添加更多私有成员变量和辅助函数
   // (Spring 2025) Feel free to add more fields and helper functions below if needed
 };

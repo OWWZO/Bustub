@@ -36,8 +36,10 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) {
   SetFatherPageId(INVALID_PAGE_ID);
   SetPageId(INVALID_PAGE_ID);
   num_tombstones_ = 0;
-  prev_page_id_=INVALID_PAGE_ID;
+  pre_page_id_=INVALID_PAGE_ID;
   next_page_id_=INVALID_PAGE_ID;
+  is_begin = false;
+  is_update_ = false;
 }
 
 /**
@@ -55,7 +57,11 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetTombstones() const -> std::vector<KeyType> {
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetNumTombstones() -> size_t {
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::SetNumTombstones(size_t num) -> void {num_tombstones_=num;
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetNumTombstones()const -> size_t {
   return num_tombstones_;
 }
 
@@ -69,7 +75,7 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetNextPageId() const -> page_id_t {
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetPrePageId() const -> page_id_t {
-  return prev_page_id_;
+  return pre_page_id_;
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
@@ -77,6 +83,11 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::SetNextPageId(page_id_t next_page_id) {
   next_page_id_ = next_page_id;
 }
 
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::SetPrePageId(page_id_t pre_page_id) {
+  pre_page_id_= pre_page_id;
+}
 /*
  * Helper method to find and return the key associated with input "index" (a.k.a
  * array offset)
@@ -97,6 +108,16 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetMinKey() -> KeyType {
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::IsBegin() -> bool {
+  return is_begin;
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::SetBegin(bool set) -> void {
+    is_begin=set;
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::InsertKeyValue(const KeyComparator &comparator, const KeyType &key,
                                                 const ValueType &value) -> bool {
   if (GetSize() == 0) {
@@ -104,6 +125,9 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::InsertKeyValue(const KeyComparator &comparator,
     rid_array_[0] = value;
   }else {
     auto index = BinarySearch(comparator, key);
+    if (index==0) {
+      is_begin=true;
+    }
     if (index==-1) {
       return false;
     }
@@ -123,7 +147,7 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::InsertKeyValue(const KeyComparator &comparator,
   return true;
 }
 
-FULL_INDEX_TEMPLATE_ARGUMENTS
+FULL_INDEX_TEMPLATE_ARGUMENTS//  用于找到insert的位置
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::BinarySearch(const KeyComparator &comparator,
                                               const KeyType &key) -> int {
   int begin = 0;
@@ -151,12 +175,15 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::MatchKey(KeyType key, const KeyComparator &comp
   int end = GetSize() - 1;
   while (begin <= end) {
     int mid = (end - begin) / 2 + begin;
-    int res=comparator(key_array_[mid], key);
+    int res = comparator(key_array_[mid], key);
     if (res > 0) {
       end = mid - 1;
-    } else if (res < 0){
+    } else if (res < 0) {
       begin = mid + 1;
-    }else {
+    } else {
+      if (LEAF_PAGE_TOMB_CNT > 0 && IsTombstone(mid)) {
+        return -1;
+      }
       return mid;
     }
   }
@@ -164,15 +191,33 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::MatchKey(KeyType key, const KeyComparator &comp
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::Delete(KeyType key, const KeyComparator& comparator) {
-  //找到与key匹配的下标
+void B_PLUS_TREE_LEAF_PAGE_TYPE::Delete(const KeyType key, const KeyComparator &comparator) {
   auto index= MatchKey(key,comparator);
-  if (index==-1) {
+  if (index == -1) {
+    return ;
+  }
+  // 当墓碑数组大小为0时，直接进行物理删除（乐观删除）
+  if (LEAF_PAGE_TOMB_CNT == 0) {
+    // 物理删除：移动数组元素
+    // 保存删除前的大小，避免在循环中重复调用GetSize()
+    int current_size = GetSize();
+    for (int i = index; i < current_size-1; i++) {
+      key_array_[i] = key_array_[i + 1];
+      rid_array_[i] = rid_array_[i + 1];
+    }
+    ChangeSizeBy(-1);
+    if (index == 0) {
+      if (!is_update_) {
+        before_first_key_ = key;
+      }
+      is_update_ = true;
+    }
     return;
   }
-  for (;index<GetSize();index++) {
-    key_array_[index]=key_array_[index+1];
-    rid_array_[index]=rid_array_[index+1];
+  // 乐观删除 标记墓碑 不物理删除
+  MarkTomb(index);
+  if (index==0) {//TODO is_update重置
+    is_update_=true;
   }
   ChangeSizeBy(-1);
 }
@@ -187,6 +232,63 @@ KeyType B_PLUS_TREE_LEAF_PAGE_TYPE::Absorb(B_PLUS_TREE_LEAF_PAGE_TYPE *page) {
   //更新大小
   page->ChangeSizeBy(-page->GetSize());
   return begin_key;
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::MarkTomb(int index) {
+    tombstones_[GetNumTombstones()]=index;
+    SetNumTombstones(GetNumTombstones()+1);
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+bool B_PLUS_TREE_LEAF_PAGE_TYPE::IsTombstone(int index) const {
+  // 检查index是否在tombstones_数组中
+  for (size_t i = 0; i < GetNumTombstones(); i++) {
+    if (tombstones_[i] == static_cast<size_t>(index)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+bool B_PLUS_TREE_LEAF_PAGE_TYPE::IsUpdate(){
+  return is_update_;
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+bool B_PLUS_TREE_LEAF_PAGE_TYPE::IsEmpty(){
+  if (GetSize()==0) {
+    return true;
+  }else {
+    return false;
+  }
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::CleanupTombs() {
+  //v
+  // 创建临时数组，只存储有效键 跳过墓碑
+  KeyType new_key_array[LEAF_PAGE_SLOT_CNT];
+  ValueType new_rid_array[LEAF_PAGE_SLOT_CNT];
+  int new_size = 0;
+
+  //  遍历所有键 只保留非墓碑的键
+  for (int i = 0; i < GetSize(); i++) {
+    if (!IsTombstone(i)) {
+      new_key_array[new_size] = key_array_[i];
+      new_rid_array[new_size] = rid_array_[i];
+      new_size++;
+    }
+  }
+
+  //  将新数组复制回原数组
+  for (int i = 0; i < new_size; i++) {
+    key_array_[i] = new_key_array[i];
+    rid_array_[i] = new_rid_array[i];
+  }
+  num_tombstones_ = 0;
 }
 
 //当查找不到时 直接返回索引0上的值
@@ -246,11 +348,18 @@ std::pair<KeyType, ValueType> B_PLUS_TREE_LEAF_PAGE_TYPE::PopFront() {
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetBeforeFirstKey() const -> KeyType {
+  return before_first_key_;
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page) {
-  //设置其 next_page_id_ 为原节点的 next_page_id_
+  //设置其 next_page_id_ 为原节点的 next_page_id_ 这里更新三个页的前后页关系
   new_leaf_page->next_page_id_=next_page_id_;
-  new_leaf_page->prev_page_id_=GetPageId();
-  next_page_id_=new_leaf_page->GetPageId();
+  new_leaf_page->pre_page_id_=GetPageId();//1
+  next_page_id_=new_leaf_page->GetPageId();//2
+
+
   for (int mid=GetMaxSize()/2;mid<GetMaxSize();mid++) {
     //由于已经是有序的 新叶子页所以直接顺序加入
     new_leaf_page->key_array_[new_leaf_page->GetSize()]=key_array_[mid];

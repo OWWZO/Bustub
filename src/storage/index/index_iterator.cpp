@@ -27,18 +27,67 @@ FULL_INDEX_TEMPLATE_ARGUMENTS
 INDEXITERATOR_TYPE::IndexIterator() = default;
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
-INDEXITERATOR_TYPE::~IndexIterator() = default;  // NOLINT
-
-FULL_INDEX_TEMPLATE_ARGUMENTS
-auto INDEXITERATOR_TYPE::IsEnd() -> bool { UNIMPLEMENTED("TODO(P2): Add implementation."); }
-
-FULL_INDEX_TEMPLATE_ARGUMENTS
-auto INDEXITERATOR_TYPE::operator*() -> std::pair<const KeyType &, const ValueType &> {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
+INDEXITERATOR_TYPE::IndexIterator(std::shared_ptr<TracedBufferPoolManager> bpm, page_id_t page_id) {
+  if (page_id==INVALID_PAGE_ID) {
+    page_id_=page_id;
+    index_=-1;
+    return;
+  }
+  bpm_=bpm;
+  page_id_=page_id;
+  guard_=bpm_->WritePage(page_id);
+  page_=guard_.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+  index_=0;
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
-auto INDEXITERATOR_TYPE::operator++() -> INDEXITERATOR_TYPE & { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+INDEXITERATOR_TYPE::~IndexIterator() = default;  // NOLINT
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+auto INDEXITERATOR_TYPE::IsEnd() -> bool {
+  if (page_id_==-1) {
+    return true;
+  }
+  return false;
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+auto INDEXITERATOR_TYPE::operator*() -> std::pair<const KeyType &, const ValueType &> {
+  return std::make_pair((*page_).KeyAt(index_),(*page_).ValueAt(index_));
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+auto INDEXITERATOR_TYPE::operator++() -> INDEXITERATOR_TYPE & {
+  index_++;
+  //跳过墓碑
+  while (page_->IsTombstone(index_)&&index_ <page_->GetSize()) {
+    index_++;
+  }
+
+    //切换到下一页
+  if (index_>=page_->GetSize()) {
+    page_id_t next_page_id = page_->GetNextPageId();
+    //没有下一页了
+    if (next_page_id == INVALID_PAGE_ID) {
+      page_id_ =INVALID_PAGE_ID;
+      index_=-1;
+      return *this;
+    }
+
+    guard_ = bpm_->WritePage(next_page_id);
+    page_ = guard_.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+    index_ = 0;
+    page_id_=next_page_id;
+
+    //跳过墓碑
+    while (index_ <page_->GetSize() &&page_->IsTombstone(index_)) {
+      index_++;
+    }
+  }
+
+
+  return *this;
+}
 
 template class IndexIterator<GenericKey<4>, RID, GenericComparator<4>>;
 

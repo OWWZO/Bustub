@@ -65,7 +65,7 @@ void BPlusTreePage::SetPageId(page_id_t id) {
   page_id_=id;
 }
 
-auto BPlusTreePage::GetPageId() -> page_id_t {
+auto BPlusTreePage::GetPageId()const -> page_id_t {
   return page_id_;
 }
 

@@ -157,7 +157,6 @@ TEST(BPlusTreeTests, OptimisticInsertTest) {
     // 类比：把填好的"索引卡"和"位置标签"一起加入图书馆索引系统，系统自动按编号排序存放
     tree.Insert(index_key, rid);
   }
-  tree.Draw(bpm, "b_plus_tree.dot");
   // 9. 乐观插入前的准备：找到一个能直接插入的叶子节点（避免节点分裂）
   // 类比：在插入新书前，先检查所有底层分索引页（叶子节点），找一张还没装满的（能直接加索引卡的）
   size_t to_insert = num_keys + 1; // 初始化要插入的键值（默认值，后续会修改）
@@ -196,7 +195,7 @@ TEST(BPlusTreeTests, OptimisticInsertTest) {
   // 执行乐观插入：将数据插入B+树
   // 类比：把新书的索引卡插入到之前找到的分索引页（有空位的页），并记录位置标签
   tree.Insert(index_key, rid);
-
+  tree.Draw(bpm, "b_plus_tree.dot");
   // 12. 记录插入后的IO统计：获取插入后的读次数和写次数
   // 类比：记录插入新书后，总的搬书次数（读）和放回次数（写）
   auto new_reads = tree.bpm_->GetReads();
@@ -236,6 +235,7 @@ TEST(BPlusTreeTests, InsertTest1NoIterator) {
     rid.Set(static_cast<int32_t>(key >> 32), value);
     index_key.SetFromInteger(key);
     tree.Insert(index_key, rid);
+    tree.Draw(bpm, "b_plus_tree.dot");
   }
 
   bool is_present;
@@ -275,6 +275,7 @@ TEST(BPlusTreeTests, InsertTest2) {
     rid.Set(static_cast<int32_t>(key >> 32), value);
     index_key.SetFromInteger(key);
     tree.Insert(index_key, rid);
+    tree.Draw(bpm, "b_plus_tree.dot");
   }
 
   std::vector<RID> rids;

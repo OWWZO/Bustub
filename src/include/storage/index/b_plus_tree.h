@@ -96,6 +96,7 @@ class BPlusTree {
   // 判断当前B+树是否为空（没有键值对）
   // 类比：检查仓库里是不是没有任何食材
   auto IsEmpty() const -> bool;
+  void UpdateFather(KeyType first_key, KeyType second_key, WritePageGuard &write_guard);
 
   auto LocateKey(const KeyType &key, const BPlusTreeHeaderPage* header_page) -> page_id_t;
 
@@ -121,14 +122,17 @@ class BPlusTree {
   void RedistributeForInternal(page_id_t page_id,
                                BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *internal_write);
 
-  void MergeForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write);
-  void MergeForInternal(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *internal_write);
-  void CheckForInternal(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* internal_write);
+  void MergeForLeaf(WritePageGuard &leaf_guard);
+  void MergeForInternal(WritePageGuard &internal_guard);
+  void CheckForInternal(WritePageGuard &internal_guard);
 
   auto IsDistributeForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write) -> page_id_t;
-  auto IsDistributeForInternal(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* internal_write) -> page_id_t;
+  auto IsDistributeForInternal(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* internal_write, int to_size) -> page_id_t;
 
-  void CheckForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write);
+  void CheckForLeaf(WritePageGuard &leaf_guard);
+
+  void DeepDeleteOrUpdate(const KeyType &key, std::optional<KeyType> update_key, BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *internal_write, bool
+                          is_update);
   // 从B+树中删除一个键及其对应的值
   // 类比：根据食材编号（key），从仓库里把对应的食材（value）拿走
   void Remove(const KeyType &key);

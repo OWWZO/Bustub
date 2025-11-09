@@ -31,6 +31,9 @@ class IndexIterator {
  public:
   // you may define your own constructor based on your member variables
   IndexIterator();
+
+  IndexIterator(std::shared_ptr<TracedBufferPoolManager> bpm, page_id_t page_id);
+
   ~IndexIterator();  // NOLINT
 
   auto IsEnd() -> bool;
@@ -39,12 +42,32 @@ class IndexIterator {
 
   auto operator++() -> IndexIterator &;
 
-  auto operator==(const IndexIterator &itr) const -> bool { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+  auto operator==(const IndexIterator &itr) const -> bool {
+    if (itr.page_id_==page_id_&&index_==itr.index_) {
+      return true;
+    }
+    return false;
+  }
 
-  auto operator!=(const IndexIterator &itr) const -> bool { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+  auto operator!=(const IndexIterator &itr) const -> bool {
+    if (itr.page_id_==page_id_&&index_==itr.index_) {
+      return false;
+    }
+    return true;
+  }
 
  private:
   // add your own private member variables here
+  B_PLUS_TREE_LEAF_PAGE_TYPE* page_;
+
+  WritePageGuard guard_;
+
+  page_id_t page_id_;
+
+  int index_;
+
+  std::shared_ptr<TracedBufferPoolManager> bpm_;
+
 };
 
 }  // namespace bustub

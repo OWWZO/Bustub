@@ -44,6 +44,25 @@ auto BPLUSTREE_TYPE::IsEmpty() const -> bool {
   return false;
 }
 
+FULL_INDEX_TEMPLATE_ARGUMENTS
+void BPLUSTREE_TYPE::UpdateFather(KeyType first_key, KeyType second_key, WritePageGuard& write_guard) {
+  auto write=write_guard.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+
+  //获取父页write
+  auto father_id=write->GetFatherPageId();
+  if (father_id==INVALID_PAGE_ID) {
+    return ;
+  }
+  auto father_guard=bpm_->WritePage(father_id);
+  auto father_write=father_guard.template AsMut<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
+
+  auto index=father_write->MatchKey(first_key,comparator_);
+  father_write->UpdateKey(index,second_key);
+  if (index==0) {
+    UpdateFather(first_key,second_key,father_guard);
+  }
+}
+
 //调用之前 需要确保根页存在
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::LocateKey(const KeyType &key, const BPlusTreeHeaderPage* header_page) -> page_id_t {
@@ -55,8 +74,10 @@ auto BPLUSTREE_TYPE::LocateKey(const KeyType &key, const BPlusTreeHeaderPage* he
     {
       auto root_page_write = root_guard.As<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
       //先查一层 防止用root_page_guard来进行循环 减少bug出现概率
-
       auto temp_id = root_page_write->Find(comparator_, key);
+      if (temp_id==INVALID_PAGE_ID) {
+        return -1;
+      }
       //读取这个id的信息
       auto temp_guard = bpm_->ReadPage(temp_id);
       auto temp_write_b_page = temp_guard.template As<BPlusTreePage>();
@@ -99,6 +120,9 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
     return false;
   }
   auto page_id=LocateKey(key,header_page);
+  if (page_id==INVALID_PAGE_ID) {
+    return false;
+  }
   auto leaf_guard=bpm_->ReadPage(page_id);
   auto leaf_read=leaf_guard.template As<B_PLUS_TREE_LEAF_PAGE_TYPE>();
   leaf_read->FindAndPush(comparator_, key, result);
@@ -179,7 +203,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
     {
       auto root_page_write =  find_guard.As<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
       //先查一层 防止用root_page_guard来进行循环 减少bug出现概率
-      auto temp_id = root_page_write->Find(comparator_, key);
+      auto temp_id = root_page_write->AccurateFind(comparator_, key);
       //读取这个id的信息
       auto temp_guard = bpm_->ReadPage(temp_id);
       auto temp_write_b_page = temp_guard.template As<BPlusTreePage>();
@@ -190,7 +214,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
         auto guard_while = bpm_->ReadPage(temp_id);
         auto temp_write_internal_page = guard_while.template As<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
         //继续在此内页上查找
-        temp_id = temp_write_internal_page->Find(comparator_, key);
+        temp_id = temp_write_internal_page->AccurateFind(comparator_, key);
         //复用循环外的变量 实现while循环查找
         temp_guard = bpm_->ReadPage(temp_id);
         temp_write_b_page = temp_guard.template As<BPlusTreePage>();
@@ -201,10 +225,16 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
     //根据位置 插入到指定叶子页
     auto leaf_page_guard = bpm_->WritePage(page_id);
     auto leaf_page_write = leaf_page_guard.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+    auto begin_key=leaf_page_write->GetMinKey();
     leaf_page_write->InsertKeyValue(comparator_, key, value);
     //进入前资源释放 带guard的都要进行释放
     header_guard.Drop();
      find_guard.Drop();
+    //递归更新父页的信息
+    if (leaf_page_write->IsBegin()) {
+        UpdateFather(begin_key,leaf_page_write->GetMinKey(),leaf_page_guard);
+      leaf_page_write->SetBegin(false);
+    }
     PushUp(leaf_page_write->GetPageId(), leaf_page_guard);
   }
   return true;
@@ -227,6 +257,11 @@ void BPLUSTREE_TYPE::PushUp(page_id_t id, WritePageGuard& write_guard) {
       new_page_write->SetPageId(new_page_id);
       //进行分裂
       page_write->Split(new_page_write);
+      if (new_page_write->GetNextPageId()!=INVALID_PAGE_ID) {
+        auto next_guard=bpm_->WritePage(new_page_write->GetNextPageId());
+        auto next_write=next_guard.template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+        next_write->SetPrePageId(new_page_write->GetPageId());//3
+      }
       //进行父页判断 无就创立一个内页当父页
       if (page_write->GetFatherPageId()==INVALID_PAGE_ID) {
         //建立的一些基础操作
@@ -244,8 +279,7 @@ void BPLUSTREE_TYPE::PushUp(page_id_t id, WritePageGuard& write_guard) {
         auto head_write=head_guard.AsMut<BPlusTreeHeaderPage>();
         head_write->root_page_id_ = internal_page_id;
         //设置internal页的键值对
-        internal_page_write->FirstInsert(new_page_write->GetMinKey(), page_write->GetPageId(),
-                                         new_page_write->GetPageId());
+        internal_page_write->FirstInsert(page_write->GetMinKey(),new_page_write->GetMinKey(), page_write->GetPageId(),new_page_write->GetPageId());
       }else{
         //分裂后 将新的页的数据 加入到内页
         auto father_page_guard = bpm_->WritePage(page_write->GetFatherPageId());
@@ -288,8 +322,8 @@ void BPLUSTREE_TYPE::PushUp(page_id_t id, WritePageGuard& write_guard) {
         page_write->SetFatherPageId(parent_internal_page_id);
         new_internal_write->SetFatherPageId(parent_internal_page_id);
         //插入刚刚获得的分裂键
-        parent_internal_write->FirstInsert(split_key, page_write->GetPageId(),
-                                           new_internal_write->GetPageId());
+        parent_internal_write->FirstInsert(page_write->GetMinKey(), split_key,
+                                           page_write->GetPageId(), new_internal_write->GetPageId());
         //更新 根页id;
         auto head_guard=bpm_->WritePage(header_page_id_);
         auto head_write=head_guard.AsMut<BPlusTreeHeaderPage>();
@@ -348,8 +382,8 @@ auto BPLUSTREE_TYPE::IsDistributeForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write)
   return INVALID_PAGE_ID;
 }
 
-FULL_INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::IsDistributeForInternal(BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>* internal_write) -> page_id_t {
+FULL_INDEX_TEMPLATE_ARGUMENTS//可以加个需要分配多少的参数 然后加在判断条件上
+auto BPLUSTREE_TYPE::IsDistributeForInternal(BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>* internal_write, int to_size) -> page_id_t {
   if (internal_write->GetFatherPageId()==INVALID_PAGE_ID) {
     return INVALID_PAGE_ID;
   }
@@ -361,14 +395,14 @@ auto BPLUSTREE_TYPE::IsDistributeForInternal(BPlusTreeInternalPage<KeyType,page_
   if (left_id!=INVALID_PAGE_ID){
     auto left_guard=bpm_->ReadPage(left_id);
     auto left_write=left_guard.template As<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
-    if (left_write->GetSize()>left_write->GetMinSize()) {
+    if (left_write->GetSize()-left_write->GetMinSize()>=to_size) {
       return left_id;
     }
   }
   if (right_id!=INVALID_PAGE_ID) {
     auto right_guard=bpm_->ReadPage(right_id);
     auto right_write=right_guard.template As<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
-    if (right_write->GetSize()>right_write->GetMinSize()) {
+    if (right_write->GetSize()-right_write->GetMinSize()>to_size) {
       return right_id;
     }
   }
@@ -436,7 +470,8 @@ void BPLUSTREE_TYPE::RedistributeForInternal(page_id_t page_id, BPlusTreeInterna
 //叶子节点合并 //优先和左页合并 前提是父亲页相同
 //TODO(wwz): 处理合并失败的情况
 FULL_INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::MergeForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write) {
+void BPLUSTREE_TYPE::MergeForLeaf(WritePageGuard &leaf_guard) {
+  auto leaf_write = leaf_guard.template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
     //获取左页信息
   auto left_id=leaf_write->GetPrePageId();
   if (left_id!=INVALID_PAGE_ID) {
@@ -446,6 +481,12 @@ void BPLUSTREE_TYPE::MergeForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write) {
     if (left_write->GetFatherPageId()==leaf_write->GetFatherPageId()) {
       //将当前页的nextid 赋值给leftwrite的nextid
       left_write->SetNextPageId(leaf_write->GetNextPageId());
+      //将当前页的next页 的preid 改成left页id
+      auto right_guard=bpm_->WritePage(leaf_write->GetNextPageId());
+      auto right_write=right_guard.template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+      right_write->SetPrePageId(left_write->GetPageId());
+      right_guard.Drop();
+
       //将当前页融入左页
       auto begin_key= left_write->Absorb(leaf_write);
       //然后删除父页里的键
@@ -464,9 +505,15 @@ void BPLUSTREE_TYPE::MergeForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write) {
   //选右页为目标来合并
   auto right_guard=bpm_->WritePage(right_id);
   auto right_write=right_guard. template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
-  if (right_write->GetFatherPageId()==right_write->GetFatherPageId()) {
+  if (leaf_write->GetFatherPageId()==right_write->GetFatherPageId()) {
     //将当前页的nextid 设置成rightwrite的nextid
     leaf_write->SetNextPageId(right_write->GetNextPageId());
+    //将right页的next页的preid 设置成当前页
+    auto rnext_guard=bpm_->WritePage(right_write->GetNextPageId());
+    auto rnext_write=rnext_guard.template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+    rnext_write->SetPrePageId(leaf_write->GetPageId());
+    rnext_guard.Drop();
+
     //将右页融入当前页
     auto begin_key= leaf_write->Absorb(right_write);
     //然后删除父页里的键
@@ -480,7 +527,8 @@ void BPLUSTREE_TYPE::MergeForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write) {
 
 //TODO(wwz): 处理合并失败的情况
 FULL_INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::MergeForInternal(BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>* internal_write) {
+void BPLUSTREE_TYPE::MergeForInternal(WritePageGuard &internal_guard) {
+  auto internal_write = internal_guard.template AsMut<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
   auto father_page_id=internal_write->GetFatherPageId();
   if (father_page_id==INVALID_PAGE_ID) {
     return;
@@ -494,8 +542,16 @@ void BPLUSTREE_TYPE::MergeForInternal(BPlusTreeInternalPage<KeyType,page_id_t, K
     auto left_write=left_guard.template AsMut<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
     //如果父亲相同 说明可行 视为可合并对象
     if (left_write->GetFatherPageId()==internal_write->GetFatherPageId()) {
+      std::vector<page_id_t> v;
       //将当前页融入左页
-      auto begin_key= left_write->Absorb(internal_write);
+      auto begin_key= left_write->Absorb(internal_write, v);
+      //进行父id更新操作
+      for (int i : v) {
+        auto temp_guard = bpm_->WritePage(i);
+        auto temp_write = temp_guard.AsMut<BPlusTreePage>();
+        //写成internal_write了
+        temp_write->SetFatherPageId(left_write->GetPageId());
+      }
       //然后删除父页里的键
       auto index= father_write->MatchKey(begin_key,comparator_);
       father_write->DeletePair(index);
@@ -510,8 +566,15 @@ void BPLUSTREE_TYPE::MergeForInternal(BPlusTreeInternalPage<KeyType,page_id_t, K
   auto right_guard=bpm_->WritePage(right_id);
   auto right_write=right_guard. template AsMut<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
   if (right_write->GetFatherPageId()==right_write->GetFatherPageId()) {
-    //将右页融入当前页
-    auto begin_key= internal_write->Absorb(right_write);
+    //将右页融入当前页 同时将右页的叶子页加入vector
+    std::vector<page_id_t> v;
+    auto begin_key= internal_write->Absorb(right_write,v);
+    //进行父id更新操作
+    for(int i : v) {
+      auto temp_guard=bpm_->WritePage(i);
+      auto temp_write=temp_guard.AsMut<BPlusTreePage>();
+      temp_write->SetFatherPageId(internal_write->GetPageId());
+    }
     //然后删除父页里的键
     auto index= father_write->MatchKey(begin_key,comparator_);
     father_write->DeletePair(index);
@@ -520,23 +583,42 @@ void BPLUSTREE_TYPE::MergeForInternal(BPlusTreeInternalPage<KeyType,page_id_t, K
 
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::CheckForInternal(BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>* internal_write) {
+void BPLUSTREE_TYPE::CheckForInternal(WritePageGuard &internal_guard) {
+  auto internal_write = internal_guard.template AsMut<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
   //如果少了 就分配
   if (internal_write->GetSize()<internal_write->GetMinSize()) {
     //优先分配
-    auto page_id=IsDistributeForInternal(internal_write);
+    int to_distribute_size=internal_write->GetMinSize()-internal_write->GetSize();
+    auto page_id=IsDistributeForInternal(internal_write,to_distribute_size);
     if (page_id!=INVALID_PAGE_ID) {
       RedistributeForInternal(page_id,internal_write);
     }else {
+      //如果size为0 还找不到分配 就直接删除
+      if (internal_write->GetSize()==0) {
+        auto father_id=internal_write->GetFatherPageId();
+        if (father_id==INVALID_PAGE_ID) {
+          //说明是顶层内页 执行root_page_id重置操作
+          auto header_guard = bpm_->WritePage(header_page_id_);
+          auto header_page_write = header_guard.AsMut<BPlusTreeHeaderPage>();
+          header_page_write->root_page_id_=INVALID_PAGE_ID;
+          bpm_->DeletePage(internal_write->GetPageId());
+          return;
+        }
+        auto father_guard=bpm_->WritePage(father_id);
+        bpm_->DeletePage(internal_write->GetPageId());
+        internal_guard.Drop();
+        CheckForInternal(father_guard);
+        return;
+      }
       //会导致上层父页少个键值对 使用check检测
-      MergeForInternal(internal_write);
+      MergeForInternal(internal_guard);
       auto father_id=internal_write->GetFatherPageId();
       if (father_id==INVALID_PAGE_ID) {
         return;
       }
       auto father_guard=bpm_->WritePage(father_id);
-      auto father_write=father_guard.template AsMut<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
-      CheckForInternal(father_write);
+      internal_guard.Drop();
+      CheckForInternal(father_guard);
     }
   }
 }
@@ -544,7 +626,8 @@ void BPLUSTREE_TYPE::CheckForInternal(BPlusTreeInternalPage<KeyType,page_id_t, K
 
 //可以递归循环向上检查 因为内页也有最小限制
 FULL_INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::CheckForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write) {
+void BPLUSTREE_TYPE::CheckForLeaf(WritePageGuard &leaf_guard) {
+    auto leaf_write = leaf_guard.template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
     //如果少了 就分配
     if (leaf_write->GetSize()<leaf_write->GetMinSize()) {
       //优先分配
@@ -552,18 +635,44 @@ void BPLUSTREE_TYPE::CheckForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write) {
       if (page_id!=INVALID_PAGE_ID) {
         RedistributeForLeaf(page_id, leaf_write);
       }else {
+        //如果当前页size为0 而且还找不到分配 就直接删除
+        if (leaf_write->GetSize()==0) {
+          // 处理左右叶子也的preid 和nextid的关系
+          if (leaf_write->GetNextPageId()!=INVALID_PAGE_ID) {
+            auto right_guard=bpm_->WritePage(leaf_write->GetNextPageId());
+            auto right_write=right_guard.template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+            right_write->SetPrePageId(leaf_write->GetPrePageId());
+          }
+
+          if (leaf_write->GetPrePageId()!=INVALID_PAGE_ID) {
+            auto left_guard=bpm_->WritePage(leaf_write->GetPrePageId());
+            auto left_write=left_guard.template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+            left_write->SetNextPageId(leaf_write->GetNextPageId());
+          }
+
+          auto father_id=leaf_write->GetFatherPageId();
+          if (father_id==INVALID_PAGE_ID) {
+            return;
+          }
+          bpm_->DeletePage(leaf_write->GetPageId());
+          auto father_guard=bpm_->WritePage(father_id);
+          leaf_guard.Drop();
+          CheckForInternal(father_guard);
+          return ;
+        }
         //会导致上层父页少个键值对 使用check检测
-        MergeForLeaf(leaf_write);
+        MergeForLeaf(leaf_guard);
         auto father_id=leaf_write->GetFatherPageId();
         if (father_id==INVALID_PAGE_ID) {
           return;
         }
         auto father_guard=bpm_->WritePage(father_id);
-        auto father_write=father_guard.template AsMut<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
-        CheckForInternal(father_write);
+        leaf_guard.Drop();
+        CheckForInternal(father_guard);
       }
     }
 }
+
 /**
  * @brief Delete key & value pair associated with input key
  * If current tree is empty, return immediately.
@@ -572,7 +681,47 @@ void BPLUSTREE_TYPE::CheckForLeaf(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write) {
  * necessary.
  *
  * @param key input key
+ * @param update_key
+ * @param is_update
  */
+//传入的是父亲的write 进入至少是到三层了
+FULL_INDEX_TEMPLATE_ARGUMENTS
+void BPLUSTREE_TYPE::DeepDeleteOrUpdate(const KeyType &key, std::optional<KeyType> update_key, BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>* internal_write, bool
+                                        is_update) {
+
+  //删除传入write的父页相关的信息
+  auto father_id=internal_write->GetFatherPageId();
+  if (father_id==INVALID_PAGE_ID) {
+    //说明是顶层内页
+    return;
+  }
+  auto father_guard=bpm_->WritePage(father_id);
+  auto father_write=father_guard.template AsMut<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
+  //匹配到 然后更新
+  auto father_index=father_write->MatchKey(key,comparator_);
+  if (father_index==-1) {
+    return ;
+  }
+  if (is_update) {
+    father_write->UpdateKey(father_index,update_key);
+    if (father_index==0) {
+      DeepDeleteOrUpdate(key,update_key, father_write,true);
+    }
+  }else {
+    father_write->DeletePair(father_index);
+    if (father_index==0){
+      if (father_write->GetSize()!=0) {
+        //找到更新键了
+        DeepDeleteOrUpdate(key,father_write->GetMinKey(), father_write,true);
+      }else {
+        //如果还找不出更新键 就继续删
+        DeepDeleteOrUpdate(key,update_key,father_write,false);
+      }
+    }
+  }
+}
+
+
 FULL_INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::Remove(const KeyType &key) {
   // Declaration of context instance.
@@ -588,18 +737,114 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
   auto page_id=LocateKey(key,header_page);
   //先释放根页 防止根页为叶子页的情况
   header_guard.Drop();
-  //执行叶子页的delete函数 删除里面的键值对
+  //执行叶子页的delete函数 标记里面的键值对
   auto leaf_guard=bpm_->WritePage(page_id);
   auto leaf_write=leaf_guard.template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
-  leaf_write->Delete(key,comparator_);
-  //如果有父亲页 则清除父亲页的有关数据 TODO
-  if (leaf_write->GetFatherPageId()!=INVALID_PAGE_ID) {
-    auto father_guard=bpm_->WritePage(leaf_write->GetFatherPageId());
-    auto father_write=father_guard.template AsMut<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
-//TODO
+  // 乐观删除 标记为墓碑或直接物理删除
+  leaf_write->Delete(key, comparator_);
+  
+  // 当墓碑数组大小为0时，已经进行了物理删除
+  if (LEAF_PAGE_TOMB_CNT == 0) {
+    // 乐观删除：如果删除后节点大小仍然大于等于最小大小，不触发合并或重新分配，也不更新父页
+    // 只有当删除后节点大小小于最小大小时，才触发合并或重新分配，并更新父页
+    if (leaf_write->GetSize() < leaf_write->GetMinSize()) {
+      // 需要合并或重新分配时，才更新父页信息
+      if (leaf_write->GetFatherPageId() != INVALID_PAGE_ID) {
+        if (leaf_write->IsUpdate() && !leaf_write->IsEmpty()) {
+          auto father_guard_w = bpm_->WritePage(leaf_write->GetFatherPageId());
+          auto father_write = father_guard_w.template AsMut<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
+
+          auto father_index = father_write->MatchKey(leaf_write->GetBeforeFirstKey(), comparator_);
+
+          //说明是父页的首键 就要递归向上更新信息
+          if (father_index==0) {
+            //先将当前的还在生效的首键 更新到父页
+            father_write->UpdateKey(father_index, leaf_write->GetMinKey());
+
+             //然后更新父亲的父亲页
+            DeepDeleteOrUpdate(leaf_write->GetBeforeFirstKey(), leaf_write->GetMinKey(), father_write, true);
+          }else {
+            //删除的不是父亲的首键 无需递归更新
+            father_write->UpdateKey(father_index, leaf_write->GetMinKey());
+          }
+        }
+        //如果删了之后 为空的情况
+        if (leaf_write->IsEmpty()) {
+          auto father_guard_w = bpm_->WritePage(leaf_write->GetFatherPageId());
+          auto father_write = father_guard_w.template AsMut<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
+
+          auto father_index = father_write->MatchKey(leaf_write->GetBeforeFirstKey(), comparator_);
+
+          if (father_index == 0) {
+            //删除 有关删除键的信息
+            father_write->DeletePair(father_index);
+            //如果父亲页有第二人选
+            if (father_write->GetSize() != 0) {
+              DeepDeleteOrUpdate(leaf_write->GetBeforeFirstKey(), father_write->GetMinKey(), father_write, true);
+            } else {
+              //如果父亲页没有第二人选
+              DeepDeleteOrUpdate(leaf_write->GetBeforeFirstKey(), std::nullopt, father_write, false);
+            }
+          }else {
+            //删除的不是父亲的首键 无需递归更新
+            father_write->DeletePair(father_index);
+          }
+        }
+      }
+      //检测是否能合并或者重分配
+      CheckForLeaf(leaf_guard);
+    }
+    return;
   }
-  //检测是否少于最小键值对个数
-  CheckForLeaf(leaf_write);
+  
+  //判断是否要进行清除墓碑
+  if (leaf_write->GetSize()<leaf_write->GetMinSize()||leaf_write->GetNumTombstones()>=LEAF_PAGE_TOMB_CNT||leaf_write->GetSize() + leaf_write->GetNumTombstones() >= static_cast<size_t>(leaf_write->GetMaxSize())) {
+
+    //如果isupdate为true 就要用这个变量
+    auto temp_key=leaf_write->GetMinKey();
+
+     leaf_write->CleanupTombs();  // 物理删除所有墓碑
+
+    //进行递归更新父页信息  size为空或者没有删首键不需要更新
+     if (leaf_write->GetFatherPageId()!=INVALID_PAGE_ID) {
+       //检查是否需要更新处理 同时要不为空
+       if (leaf_write->IsUpdate()&&!leaf_write->IsEmpty()){
+         auto father_guard_w=bpm_->WritePage(leaf_write->GetFatherPageId());
+         auto father_write=father_guard_w . template AsMut<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
+         //父页更新
+         auto father_index=father_write->MatchKey(temp_key,comparator_);
+
+         if (father_index==0) {
+           //更新已经删除的首键信息
+           father_write->UpdateKey(father_index,leaf_write->GetMinKey());
+           //递归删除逻辑 一次性把头上的页的信息全部删除 这样当内页删除的时候 就无需进行父页的信息删除了
+           DeepDeleteOrUpdate(temp_key,leaf_write->GetMinKey(),father_write,true);
+         }else {
+           //更新已经删除的首键信息
+           father_write->UpdateKey(father_index,leaf_write->GetMinKey());
+         }
+       }
+       //如果为空 就直接删
+       if (leaf_write->IsEmpty()) {
+         auto father_guard_w=bpm_->WritePage(leaf_write->GetFatherPageId());
+         auto father_write=father_guard_w . template AsMut<BPlusTreeInternalPage<KeyType,page_id_t, KeyComparator>>();
+         auto father_index=father_write->MatchKey(temp_key,comparator_);
+          if (father_index==0) {
+            father_write->DeletePair(father_index);
+            if (father_write->GetSize()!=0) {
+              //找到更新键了
+              DeepDeleteOrUpdate(temp_key,father_write->GetMinKey(), father_write,true);
+            }else {
+              //如果还找不出更新键 就继续删
+              DeepDeleteOrUpdate(temp_key,std::nullopt,father_write,false);
+            }
+          }else {
+            father_write->DeletePair(father_index);
+          }
+       }
+     }
+    }
+  CheckForLeaf(leaf_guard);
 }
 
 /*****************************************************************************
@@ -615,7 +860,37 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
+    //返回一个迭代器类
+  auto header_guard = bpm_->ReadPage(header_page_id_);
+  auto header_page_read = header_guard.As<BPlusTreeHeaderPage>();
+  auto  find_guard = bpm_->ReadPage(header_page_read->root_page_id_);
+  auto temp_root_page_write =  find_guard.As<BPlusTreePage>();
+  auto page_id = INVALID_PAGE_ID;
+
+  if (temp_root_page_write->IsLeafPage()) {
+    return IndexIterator<KeyType, ValueType, KeyComparator, NumTombs>(bpm_, temp_root_page_write->GetPageId());
+  }else{
+    auto root_page_r =  find_guard.As<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
+    //先查一层 防止用root_page_guard来进行循环 减少bug出现概率
+    auto temp_id =root_page_r->ValueAt(0);
+    //读取这个id的信息
+    auto temp_guard = bpm_->ReadPage(temp_id);
+    auto temp_write_b_page = temp_guard.template As<BPlusTreePage>();
+    //发现不是叶子页 就循环find
+    temp_guard.Drop();//TODO 这个会导致短暂的guard缺失 然后指针还能用的情况
+    while (!temp_write_b_page->IsLeafPage()) {
+      auto guard_while = bpm_->ReadPage(temp_id);
+      auto temp_write_internal_page = guard_while.template As<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
+      //继续在此内页上查找
+      temp_id = temp_write_internal_page->ValueAt(0);
+      //复用循环外的变量 实现while循环查找
+      temp_guard = bpm_->ReadPage(temp_id);
+      temp_write_b_page = temp_guard.template As<BPlusTreePage>();
+      temp_guard.Drop();
+    }
+    page_id = temp_id;
+  }
+  return IndexIterator<KeyType,ValueType,KeyComparator,NumTombs>(bpm_,page_id);
 }
 
 /**
@@ -625,14 +900,38 @@ auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
-  UNIMPLEMENTED("TODO(P2): Add implementation.");
-  // auto header_guard = bpm_->ReadPage(header_page_id_);
-  // auto header_page = header_guard.As<BPlusTreeHeaderPage>();
-  // // 如果树为空，返回false
-  // if (header_page->root_page_id_ == INVALID_PAGE_ID) {
-  // }
-  // auto page_id=LocateKey(key,header_page);
+  //返回一个迭代器类
+  auto header_guard = bpm_->ReadPage(header_page_id_);
+  auto header_page_read = header_guard.As<BPlusTreeHeaderPage>();
+  auto  find_guard = bpm_->ReadPage(header_page_read->root_page_id_);
+  auto temp_root_page_write =  find_guard.As<BPlusTreePage>();
+  auto page_id = INVALID_PAGE_ID;
 
+  if (temp_root_page_write->IsLeafPage()) {
+    return IndexIterator<KeyType,ValueType,KeyComparator,NumTombs>(bpm_,temp_root_page_write->GetPageId());
+  }else{
+    auto root_page_write =  find_guard.As<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
+    //先查一层 防止用root_page_guard来进行循环 减少bug出现概率
+    auto temp_id = root_page_write->AccurateFind(comparator_, key);
+    //读取这个id的信息
+    auto temp_guard = bpm_->ReadPage(temp_id);
+    auto temp_write_b_page = temp_guard.template As<BPlusTreePage>();
+    //发现不是叶子页 就循环find
+    temp_guard.Drop();
+    while (!temp_write_b_page->IsLeafPage()) {
+      //先将第一次查找的那一页 变成internal 页
+      auto guard_while = bpm_->ReadPage(temp_id);
+      auto temp_write_internal_page = guard_while.template As<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
+      //继续在此内页上查找
+      temp_id = temp_write_internal_page->AccurateFind(comparator_, key);
+      //复用循环外的变量 实现while循环查找
+      temp_guard = bpm_->ReadPage(temp_id);
+      temp_write_b_page = temp_guard.template As<BPlusTreePage>();
+      temp_guard.Drop();
+    }
+    page_id = temp_id;
+  }
+  return IndexIterator<KeyType,ValueType,KeyComparator,NumTombs>(bpm_,page_id);
 }
 
 /**
@@ -641,7 +940,9 @@ auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
  * @return : index iterator
  */
 FULL_INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::End() -> INDEXITERATOR_TYPE { UNIMPLEMENTED("TODO(P2): Add implementation."); }
+auto BPLUSTREE_TYPE::End() -> INDEXITERATOR_TYPE {
+  return IndexIterator<KeyType, ValueType, KeyComparator, NumTombs>(bpm_, -1);
+}
 
 /**
  * @return Page id of the root of this tree

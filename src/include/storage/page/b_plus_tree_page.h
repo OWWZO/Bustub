@@ -130,7 +130,7 @@ class BPlusTreePage {
   auto GetMinSize() const -> int;
 
   void SetPageId(page_id_t id);
-  auto GetPageId()->page_id_t;
+  auto GetPageId() const -> page_id_t;
 
   void SetFatherPageId(page_id_t id);
   auto GetFatherPageId()->page_id_t;

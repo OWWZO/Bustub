@@ -112,16 +112,26 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::BinarySearch(const KeyComparator &comparato
     } else if (res < 0){
       begin = mid + 1;
     }else {
+      //这里能用于key的等于 精确定位
       return mid+1; //抵消外部的-1;
     }
   }
+  //外部index-1 的操作能用于没查找到然后返回-1
+  //如果size为1 进入这个函数 而且key比key[0]小 将会返回0 后面直接return -1
+  //这里能用于返回大于key的第一个下标 用于向下查找
   return result;
 }
 
 INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::GetMinKey() ->KeyType {
+  return key_array_[0];
+}
+
+INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::FirstInsert(
-    const KeyType &key, const ValueType &left_page_id, const ValueType &right_page_id) {
-    key_array_[1]=key;
+   const KeyType& key_left, const KeyType &key_right, const ValueType &left_page_id, const ValueType &right_page_id) {
+    key_array_[0]=key_left;
+    key_array_[1]=key_right;
     page_id_array_[0]=left_page_id;
     page_id_array_[1]=right_page_id;
     ChangeSizeBy(2);
@@ -150,6 +160,12 @@ bool B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertKeyValue(const KeyComparator &compara
   return true;
 }
 
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::UpdateKey(int index, std::optional<KeyType> update_key)
+  -> void {
+    key_array_[index]=update_key.value();
+}
+
 //将内页里的key键值对 更新成传入叶子页的首键值对 对应左
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::UpdateKey(KeyType key, std::pair<KeyType,ValueType> pair, const KeyComparator &comparator)
@@ -161,12 +177,13 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::UpdateKey(KeyType key, std::pair<KeyType,Va
 
 //吸收函数 将page里的键值对吸收到末尾 但是不做删除处理 外部负责处理
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Absorb(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *page) -> KeyType {
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Absorb(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *page, std::vector<page_id_t>& v) -> KeyType {
   auto begin_key=page->KeyAt(0);
   for (int i=0;i<page->GetSize();i++) {
     InsertBack(std::make_pair(page->key_array_[i], page->page_id_array_[i]));
+    v.push_back(page->page_id_array_[i]);
   }
-  //更新大小
+  //更新大小为0
   page->ChangeSizeBy(-page->GetSize());
   return begin_key;
 }
@@ -179,7 +196,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertBack(std::pair<KeyType, page_id_t> pa
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::MatchKey(KeyType key, const KeyComparator &comparator) -> int {
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::MatchKey(const KeyType key, const KeyComparator &comparator) const -> int {
   int begin = 0;
   int end = GetSize() - 1;
   while (begin <= end) {
@@ -222,7 +239,11 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::GetPrePageId( const BPlusTreeInternalPage<K
     return INVALID_PAGE_ID;
   }
   //直接定位到左页id
-  return father_write->page_id_array_[index-1];
+  if (index!=0) {
+    return father_write->page_id_array_[index-1];
+  }else {
+    return INVALID_PAGE_ID;
+  }
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -240,18 +261,50 @@ INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::GetNextPageId( const BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* father_write) -> page_id_t {
   //返回这个页id的物理下标
   auto index= father_write->ValueIndexForPage_id_t(GetPageId());
-  //直接定位到左页id
-  return father_write->page_id_array_[index+1];
+  //直接定位到右页id
+  if (index+1<father_write->GetSize()) {
+    return father_write->page_id_array_[index+1];
+  }else {
+    return INVALID_PAGE_ID;
+  }
+}
+
+
+//找到第一个大于key的下标 然后减一 找到最后一个小于key的下标
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::AccurateFind(const KeyComparator& comparator, const KeyType &key) const -> page_id_t {
+  int begin = 0;
+  int end = GetSize()-1;
+  int result=GetSize();
+  while (begin <= end) {
+    int mid = (end - begin) / 2 + begin;
+    int res=comparator(key_array_[mid], key);
+    if (res > 0) {
+      end = mid - 1;
+      result=mid;
+    } else if (res < 0){
+      begin = mid + 1;
+    }else {
+      return page_id_array_[mid];
+    }
+  }
+  if (result==0) {
+    return page_id_array_[result];
+  }
+  //找到最后一个小于key的下标
+  return page_id_array_[result-1];
 }
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Find(const KeyComparator& comparator, const KeyType &key) const -> page_id_t {
+  //获得大于key的第一个下标
   auto index=BinarySearch(comparator,key);
-  if (index==-1) {
+  if (index==0) {
     return -1;
   }
-  return page_id_array_[index-1];//减一刚好使得返回最后一个页
+  return page_id_array_[index-1];//减一刚好使得返回最后一个小于key的页
 }
+
 
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::DeletePair(int index) {
