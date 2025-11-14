@@ -53,7 +53,10 @@ auto INDEXITERATOR_TYPE::IsEnd() -> bool {
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto INDEXITERATOR_TYPE::operator*() -> std::pair<const KeyType &, const ValueType &> {
-  return std::make_pair((*page_).KeyAt(index_),(*page_).ValueAt(index_));
+  // Store key and value in member variables to avoid returning references to temporary objects
+  current_key_ = (*page_).KeyAt(index_);
+  current_value_ = (*page_).ValueAt(index_);
+  return {current_key_, current_value_};
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS

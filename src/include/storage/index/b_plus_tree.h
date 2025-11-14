@@ -97,6 +97,8 @@ class BPlusTree {
   // 类比：检查仓库里是不是没有任何食材
   auto IsEmpty() const -> bool;
   void UpdateFather(KeyType first_key, KeyType second_key, WritePageGuard &write_guard);
+  void RecursiveUpdateKeyForRedistribute(KeyType old_key, std::pair<KeyType, page_id_t> new_pair,
+                                         BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* father_write);
 
   auto LocateKey(const KeyType &key, const BPlusTreeHeaderPage* header_page) -> page_id_t;
 
@@ -133,6 +135,8 @@ class BPlusTree {
 
   void DeepDeleteOrUpdate(const KeyType &key, std::optional<KeyType> update_key, BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *internal_write, bool
                           is_update);
+
+  void DeepUpdate(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write, KeyType temp_key);
   // 从B+树中删除一个键及其对应的值
   // 类比：根据食材编号（key），从仓库里把对应的食材（value）拿走
   void Remove(const KeyType &key);

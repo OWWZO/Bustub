@@ -15,7 +15,7 @@ namespace bustub {
 
 using bustub::DiskManagerUnlimitedMemory;
 
-TEST(BPlusTreeTests, DISABLED_TombstoneBasicTest) {
+TEST(BPlusTreeTests, TombstoneBasicTest) {
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());
 
@@ -41,14 +41,16 @@ TEST(BPlusTreeTests, DISABLED_TombstoneBasicTest) {
   }
 
   // Test tombstones are being used / affect the index iterator correctly
-
+  tree.Draw(bpm, "b_plus_tree.dot");
   std::vector<int64_t> to_delete = {1, 5, 9};
   for (auto i : to_delete) {
     index_key.SetFromInteger(i);
     tree.Remove(index_key);
+    tree.Draw(bpm, "b_plus_tree.dot");
     expected.erase(std::remove(expected.begin(), expected.end(), i), expected.end());
   }
 
+  tree.Draw(bpm, "b_plus_tree.dot");
   size_t i = 0;
   for (auto iter = tree.Begin(); iter != tree.End(); ++iter) {
     ASSERT_EQ((*iter).first.GetAsInteger(), expected[i]);
@@ -64,17 +66,28 @@ TEST(BPlusTreeTests, DISABLED_TombstoneBasicTest) {
     ++leaf;
   }
 
+  /*. 墓碑（Tombstone）相关问题
+处理时机与空间获取：
+Raunaq 提问：墓碑何时处理？插入时是否通过num_tombstones_和size_计算当前大小以获取插入空间？是否后台持续处理墓碑？
+kirillk 依据文档回复：按规范，墓碑处理应在删除操作时进行，仅当叶子页的删除缓冲区（墓碑）存满k条记录时，才将最早的缓冲删除应用到键 / 值数组。
+墓碑索引调整：
+kirillk 疑问：若墓碑存储键索引（如[3,5,7,9]），删除低索引项（如索引 3）后，墓碑应变为[5,7,9]还是调整为[4,6,8]？
+其认为需调整：因删除靠前键会导致后续值移位，索引需同步更新。
+墓碑与分裂 / 插入规则（Miketud04 观点）：
+分裂判断：基于逻辑大小（GetRealSize() - tombstone.size()），若逻辑大小≥MaxSize()则分裂，否则即使索引超MaxSize()仍直接插入。
+墓碑满时处理：仅处理最早的墓碑，更新键 / 值数组，并将剩余墓碑中大于 “已处理索引” 的项减 1。
+分裂时墓碑处理：按逻辑大小确定分裂点，同步拆分墓碑数组；合并逻辑较直观。*/
   EXPECT_EQ(tombstones.size(), to_delete.size());
-  for (size_t i = 0; i < tombstones.size(); i++) {
-    EXPECT_EQ(tombstones[i], to_delete[i]);
+  for (size_t size = 0; size < tombstones.size(); size++) {
+    EXPECT_EQ(tombstones[size], to_delete[size]);
   }
 
   // Test insertions interact correctly with tombstones
 
-  for (auto i : to_delete) {
-    int64_t value = (2 * i) & 0xFFFFFFFF;
-    rid.Set(static_cast<int32_t>(i >> 32), value);
-    index_key.SetFromInteger(i);
+  for (auto key : to_delete) {
+    int64_t value = (2 * key) & 0xFFFFFFFF;
+    rid.Set(static_cast<int32_t>(key >> 32), value);
+    index_key.SetFromInteger(key);
     tree.Insert(index_key, rid);
   }
 
@@ -84,33 +97,33 @@ TEST(BPlusTreeTests, DISABLED_TombstoneBasicTest) {
     ++leaf;
   }
 
-  for (auto i : to_delete) {
-    index_key.SetFromInteger(i);
+  for (auto key : to_delete) {
+    index_key.SetFromInteger(key);
     std::vector<RID> rids;
     tree.GetValue(index_key, &rids);
     EXPECT_EQ(rids.size(), 1);
-    EXPECT_EQ(rids[0].GetSlotNum(), (2 * i) & 0xFFFFFFFF);
+    EXPECT_EQ(rids[0].GetSlotNum(), (2 * key) & 0xFFFFFFFF);
   }
 
   // Test tombstones are processed in the correct order
 
   to_delete.clear();
   {
-    auto leaf = IndexLeaves<GenericKey<8>, RID, GenericComparator<8>, 2>(tree.GetRootPageId(), bpm);
-    while (leaf.Valid()) {
-      EXPECT_EQ(2, (*leaf)->GetMinSize());
-      if ((*leaf)->GetSize() > (*leaf)->GetMinSize()) {
-        for (int i = 0; i < (*leaf)->GetMinSize() + 1; i++) {
-          to_delete.push_back((*leaf)->KeyAt(i).GetAsInteger());
+    auto leaf_page = IndexLeaves<GenericKey<8>, RID, GenericComparator<8>, 2>(tree.GetRootPageId(), bpm);
+    while (leaf_page.Valid()) {
+      EXPECT_EQ(2, (*leaf_page)->GetMinSize());
+      if ((*leaf_page)->GetSize() > (*leaf_page)->GetMinSize()) {
+        for (int index = 0; index < (*leaf_page)->GetMinSize() + 1; index++) {
+          to_delete.push_back((*leaf_page)->KeyAt(index).GetAsInteger());
         }
         break;
       }
-      ++leaf;
+      ++leaf_page;
     }
   }
 
-  for (auto i : to_delete) {
-    index_key.SetFromInteger(i);
+  for (auto key : to_delete) {
+    index_key.SetFromInteger(key);
     tree.Remove(index_key);
   }
 
@@ -123,8 +136,8 @@ TEST(BPlusTreeTests, DISABLED_TombstoneBasicTest) {
     ++leaf;
   }
   EXPECT_EQ(tombstones.size(), to_delete.size() - 1);
-  for (size_t i = 0; i < tombstones.size(); i++) {
-    EXPECT_EQ(tombstones[i], to_delete[i + 1]);
+  for (size_t size = 0; size < tombstones.size(); size++) {
+    EXPECT_EQ(tombstones[size], to_delete[size + 1]);
   }
 
   std::vector<RID> rids;
@@ -134,8 +147,8 @@ TEST(BPlusTreeTests, DISABLED_TombstoneBasicTest) {
 
   // Test index iterator stays valid for "empty" tree (and that tree isn't fully physically deleted)
 
-  for (size_t i = 0; i < num_keys; i++) {
-    index_key.SetFromInteger(i);
+  for (size_t key = 0; key < num_keys; key++) {
+    index_key.SetFromInteger(key);
     tree.Remove(index_key);
   }
 
@@ -155,7 +168,8 @@ TEST(BPlusTreeTests, DISABLED_TombstoneBasicTest) {
   delete disk_manager;
 }
 
-TEST(BPlusTreeTests, DISABLED_TombstoneSplitTest) {
+//得出信息 标记墓碑删除之后 不减少size大小 但是当size大于maxsize之后就要分裂 同时墓碑也要分裂过去（TODO move优化） 然后将墓碑的值统一减去一个值
+TEST(BPlusTreeTests, TombstoneSplitTest) {
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());
 
@@ -176,16 +190,17 @@ TEST(BPlusTreeTests, DISABLED_TombstoneSplitTest) {
     index_key.SetFromInteger(i);
     tree.Insert(index_key, rid);
   }
-
   index_key.SetFromInteger(3);
   tree.Remove(index_key);
 
-  index_key.SetFromInteger(2);
+  tree.Draw(bpm, "b_plus_tree.dot");  index_key.SetFromInteger(2);
+
   tree.Remove(index_key);
 
   index_key.SetFromInteger(0);
   tree.Remove(index_key);
 
+  tree.Draw(bpm, "b_plus_tree.dot");
   size_t i = 4;
   while (GetNumLeaves(tree, bpm) < 2 && i < 6) {
     int64_t value = i & 0xFFFFFFFF;
@@ -195,11 +210,12 @@ TEST(BPlusTreeTests, DISABLED_TombstoneSplitTest) {
     i++;
   }
 
+  tree.Draw(bpm, "b_plus_tree.dot");
   auto leaf = IndexLeaves<GenericKey<8>, RID, GenericComparator<8>, 3>(tree.GetRootPageId(), bpm);
   while (leaf.Valid()) {
     std::vector<size_t> expected;
-    for (int i = 0; i < (*leaf)->GetSize(); i++) {
-      auto key = (*leaf)->KeyAt(i).GetAsInteger();
+    for (int index = 0; index < (*leaf)->GetSize(); index++) {
+      auto key = (*leaf)->KeyAt(index).GetAsInteger();
       if (key == 0 || key == 2 || key == 3) {
         expected.push_back(key);
       }
@@ -207,8 +223,8 @@ TEST(BPlusTreeTests, DISABLED_TombstoneSplitTest) {
     std::sort(expected.rbegin(), expected.rend());
     auto tombstones = (*leaf)->GetTombstones();
     EXPECT_EQ(tombstones.size(), expected.size());
-    for (size_t i = 0; i < tombstones.size(); i++) {
-      EXPECT_EQ(tombstones[i].GetAsInteger(), expected[i]);
+    for (size_t size = 0; size < tombstones.size(); size++) {
+      EXPECT_EQ(tombstones[size].GetAsInteger(), expected[size]);
     }
     ++leaf;
   }
@@ -217,7 +233,7 @@ TEST(BPlusTreeTests, DISABLED_TombstoneSplitTest) {
   delete disk_manager;
 }
 
-TEST(BPlusTreeTests, DISABLED_TombstoneBorrowTest) {
+TEST(BPlusTreeTests, TombstoneBorrowTest) {
   using LeafPage = BPlusTreeLeafPage<GenericKey<8>, RID, GenericComparator<8>, 1>;
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());
@@ -278,7 +294,7 @@ TEST(BPlusTreeTests, DISABLED_TombstoneBorrowTest) {
   delete disk_manager;
 }
 
-TEST(BPlusTreeTests, DISABLED_TombstoneCoalesceTest) {
+TEST(BPlusTreeTests, TombstoneCoalesceTest) {
   using LeafPage = BPlusTreeLeafPage<GenericKey<8>, RID, GenericComparator<8>, 2>;
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());

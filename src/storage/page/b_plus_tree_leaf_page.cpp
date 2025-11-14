@@ -46,7 +46,6 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(int max_size) {
 @brief 获取页面墓碑的辅助函数。
 @return 此页面中按时间顺序（最旧的在前面）排列的最后NumTombs个带有待删除标记的键。
 */
-//TODO(wwz): 需求有点不明确
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetTombstones() const -> std::vector<KeyType> {
   std::vector<KeyType> v;
@@ -57,7 +56,8 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetTombstones() const -> std::vector<KeyType> {
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_LEAF_PAGE_TYPE::SetNumTombstones(size_t num) -> void {num_tombstones_=num;
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::SetNumTombstones(size_t num) -> void {
+  num_tombstones_=num;
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
@@ -120,7 +120,7 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::SetBegin(bool set) -> void {
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::InsertKeyValue(const KeyComparator &comparator, const KeyType &key,
                                                 const ValueType &value) -> bool {
-  if (GetSize() == 0) {
+  if (GetSize()+GetNumTombstones() == 0) {
     key_array_[0] = key;
     rid_array_[0] = value;
   }else {
@@ -131,11 +131,11 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::InsertKeyValue(const KeyComparator &comparator,
     if (index==-1) {
       return false;
     }
-    if (index == GetSize()) {
-      key_array_[index] = key;
-      rid_array_[index] = value;
+    if (index == GetSize()+static_cast<int>(GetNumTombstones())) {//插到末尾
+      key_array_[index+static_cast<int>(GetNumTombstones())] = key;
+      rid_array_[index+static_cast<int>(GetNumTombstones())] = value;
     } else {
-      for (int i = GetSize() - 1; i >= index; i--) {
+      for (int i = GetSize()+GetNumTombstones() - 1; i >= index; i--) {
         key_array_[i + 1] = key_array_[i];
         rid_array_[i + 1] = rid_array_[i];
       }
@@ -151,8 +151,8 @@ FULL_INDEX_TEMPLATE_ARGUMENTS//  用于找到insert的位置
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::BinarySearch(const KeyComparator &comparator,
                                               const KeyType &key) -> int {
   int begin = 0;
-  int end = GetSize() - 1;
-  int result = GetSize();
+  int end = GetSize()+GetNumTombstones() - 1;
+  int result = GetSize()+GetNumTombstones();
   while (begin <= end) {
     int mid = (end - begin) / 2 + begin;
     int res=comparator(key_array_[mid], key);
@@ -172,7 +172,7 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::BinarySearch(const KeyComparator &comparator,
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::MatchKey(KeyType key, const KeyComparator &comparator) -> int {
   int begin = 0;
-  int end = GetSize() - 1;
+  int end = GetSize()+GetNumTombstones() - 1;
   while (begin <= end) {
     int mid = (end - begin) / 2 + begin;
     int res = comparator(key_array_[mid], key);
@@ -219,7 +219,6 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Delete(const KeyType key, const KeyComparator &
   if (index==0) {//TODO is_update重置
     is_update_=true;
   }
-  ChangeSizeBy(-1);
 }
 
 //吸收函数 将page里的键值对吸收到末尾 但是不做删除处理 外部负责处理
@@ -238,6 +237,7 @@ FULL_INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::MarkTomb(int index) {
     tombstones_[GetNumTombstones()]=index;
     SetNumTombstones(GetNumTombstones()+1);
+    ChangeSizeBy(-1);
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
@@ -275,7 +275,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::CleanupTombs() {
   int new_size = 0;
 
   //  遍历所有键 只保留非墓碑的键
-  for (int i = 0; i < GetSize(); i++) {
+  for (int i = 0; i < GetSize()+static_cast<int>(GetNumTombstones()); i++) {
     if (!IsTombstone(i)) {
       new_key_array[new_size] = key_array_[i];
       new_rid_array[new_size] = rid_array_[i];
@@ -296,7 +296,7 @@ FULL_INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::FindAndPush(const KeyComparator &comparator,
                                       const KeyType &key, std::vector<ValueType> *result) const {
   int begin = 0;
-  int end = GetSize() - 1;
+  int end = GetSize() + static_cast<int>(GetNumTombstones()) - 1;
   while (begin <= end) {
     int mid = (end - begin) / 2 + begin;
     int res=comparator(key_array_[mid], key);
@@ -304,9 +304,14 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::FindAndPush(const KeyComparator &comparator,
       end = mid - 1;
     } else if (res < 0){
       begin = mid + 1;
-    }else {
+    } else {
+      if (LEAF_PAGE_TOMB_CNT > 0 && IsTombstone(mid)) {
+        // 当前命中的键已经是墓碑，继续向右查找其它可能的重复键
+        begin = mid + 1;
+        continue;
+      }
       result->push_back(rid_array_[mid]);
-      begin=mid+1;
+      begin = mid + 1;
     }
   }
 }
@@ -368,6 +373,11 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page
     //同时更新size
     ChangeSizeBy(-1);
   }
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+void B_PLUS_TREE_LEAF_PAGE_TYPE::SetIsUpdate(bool set) {
+  is_update_=set;
 }
 
 

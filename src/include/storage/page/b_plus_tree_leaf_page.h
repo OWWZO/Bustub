@@ -203,6 +203,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
 
   void Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page);
 
+  void SetIsUpdate(bool set);
  private:
   // 私有成员变量：只能在类内部访问，保证数据安全性
   // 注意：成员变量顺序很重要，影响内存对齐和布局
@@ -214,8 +215,6 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    * 类比：电话簿封面上写的"下一本电话簿编号"，通过这个编号可以找到下一本电话簿，实现所有电话簿的顺序查阅
    */
   page_id_t next_page_id_;
-
-  page_id_t pre_page_id_;
 
   /**
    * 当前页面中墓碑的实际数量
@@ -243,6 +242,8 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    * 类比：电话簿中存储"电话号码"的列表，每个姓名（键）对应一个电话号码（RID）
    */
   ValueType rid_array_[LEAF_PAGE_SLOT_CNT];
+
+  page_id_t pre_page_id_;
 
   bool is_begin;
 

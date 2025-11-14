@@ -68,6 +68,10 @@ class IndexIterator {
 
   std::shared_ptr<TracedBufferPoolManager> bpm_;
 
+  // Store current key and value to avoid returning references to temporary objects
+  KeyType current_key_;
+  ValueType current_value_;
+
 };
 
 }  // namespace bustub
