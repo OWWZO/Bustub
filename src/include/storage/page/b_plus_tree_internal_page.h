@@ -143,6 +143,7 @@ class BPlusTreeInternalPage : public BPlusTreePage {
 
   bool InsertKeyValue(const KeyComparator &comparator, const KeyType &key,
                       const ValueType &value);
+  auto UpdateKey(int index, page_id_t id) -> void;
   auto UpdateKey(int index, std::optional<KeyType> update_key) -> void;
   auto UpdateKey(KeyType key, std::pair<KeyType, ValueType> pair, const KeyComparator &comparator) -> void;
   auto Absorb(BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *page, std::vector<page_id_t>& v) -> KeyType;

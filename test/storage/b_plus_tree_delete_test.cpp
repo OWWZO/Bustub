@@ -60,9 +60,9 @@ TEST(BPlusTreeTests,DeleteTestNoIterator) {
   }
   std::vector<int64_t> remove_keys = {1,5,3,4};
   for (auto key : remove_keys) {
-    tree.Draw(bpm, "b_plus_tree.dot");
     index_key.SetFromInteger(key);
     tree.Remove(index_key);
+    tree.Draw(bpm, "b_plus_tree.dot");
   }
   tree.Draw(bpm, "b_plus_tree.dot");
   int64_t size = 0;
@@ -145,7 +145,7 @@ TEST(BPlusTreeTests,SequentialEdgeMixTest) {  // NOLINT
 
   auto disk_manager = std::make_unique<DiskManagerUnlimitedMemory>();
   auto *bpm = new BufferPoolManager(50, disk_manager.get());
-//2
+//2 5
   for (int leaf_max_size = 2; leaf_max_size <= 5; leaf_max_size++) {
     // create and fetch header_page
     page_id_t page_id = bpm->NewPage();
@@ -164,16 +164,18 @@ TEST(BPlusTreeTests,SequentialEdgeMixTest) {  // NOLINT
       rid.Set(static_cast<int32_t>(key >> 32), value);
       index_key.SetFromInteger(key);
       tree.Insert(index_key, rid);
+      tree.Draw(bpm, "b_plus_tree.dot");
       inserted.push_back(key);
       auto res = TreeValuesMatch<GenericKey<8>, RID, GenericComparator<8>, 2>(tree, inserted, deleted);
       ASSERT_TRUE(res);
     }
 
-
     index_key.SetFromInteger(1);
     tree.Remove(index_key);
     deleted.push_back(1);
     inserted.erase(std::find(inserted.begin(), inserted.end(), 1));
+
+
     auto res = TreeValuesMatch<GenericKey<8>, RID, GenericComparator<8>, 2>(tree, inserted, deleted);
     ASSERT_TRUE(res);
 
@@ -183,16 +185,18 @@ TEST(BPlusTreeTests,SequentialEdgeMixTest) {  // NOLINT
     inserted.push_back(3);
     res = TreeValuesMatch<GenericKey<8>, RID, GenericComparator<8>, 2>(tree, inserted, deleted);
     ASSERT_TRUE(res);
+    tree.Draw(bpm, "b_plus_tree.dot");
     keys = {4, 14, 6, 2, 15, -2, -1, 3, 5, 25, 20};
     for (auto key : keys) {
       index_key.SetFromInteger(key);
       tree.Remove(index_key);
+      tree.Draw(bpm, "b_plus_tree.dot");
       deleted.push_back(key);
       inserted.erase(std::find(inserted.begin(), inserted.end(), key));
       res = TreeValuesMatch<GenericKey<8>, RID, GenericComparator<8>, 2>(tree, inserted, deleted);
       ASSERT_TRUE(res);
     }
-    tree.Draw(bpm, "b_plus_tree.dot");
+
   }
 
   delete bpm;

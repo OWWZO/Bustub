@@ -136,6 +136,8 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   KeyType Absorb(B_PLUS_TREE_LEAF_PAGE_TYPE *page);
   void MarkTomb(int index);
   bool IsTombstone(int index) const;
+  void RemoveTombstone(int index);
+  void ProcessOldestTombstone();  // 处理最早的墓碑：物理删除并调整索引
   bool IsUpdate();
   bool IsEmpty();
   void CleanupTombs();
@@ -186,6 +188,12 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   auto IsBegin() -> bool;
   auto SetBegin(bool set) -> void;
   auto InsertKeyValue(const KeyComparator& comparator, const KeyType& key, const ValueType& value) -> bool;
+  
+  /**
+   * @brief 获取逻辑大小（有效键数量）
+   * @return 逻辑大小 = GetSize() + num_tombstones_（因为删除时size减1但墓碑加1）
+   */
+  auto GetRealSize() const -> int;
 
   auto BinarySearch(const KeyComparator& comparator,const KeyType &key)->int;
 
@@ -200,6 +208,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   auto PopBack() -> std::pair<KeyType, ValueType>;
   std::pair<KeyType, ValueType> PopFront();
   auto GetBeforeFirstKey() const -> KeyType;
+  auto GetCleanBeforeFirstKey() const -> KeyType;
 
   void Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page);
 
@@ -250,6 +259,8 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   bool is_update_;//用于remove操作
 
   KeyType before_first_key_;
+
+  KeyType clean_before_first_key_;
   // 注释：2025年春季学期补充，允许根据需要添加更多私有成员变量和辅助函数
   // (Spring 2025) Feel free to add more fields and helper functions below if needed
 };

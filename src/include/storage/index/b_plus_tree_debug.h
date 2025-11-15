@@ -171,7 +171,7 @@ void BPLUSTREE_TYPE::ToGraph(page_id_t page_id, const BPlusTreePage *page, std::
     out << "</TR>";
     out << "<TR>";
     for (int i = 0; i < leaf->GetSize(); i++) {
-      out << "<TD>" << leaf->KeyAt(i+3) << "</TD>\n";
+      out << "<TD>" << leaf->KeyAt(i+2) << "</TD>\n";
     }
     out << "</TR>";
     // Print table end

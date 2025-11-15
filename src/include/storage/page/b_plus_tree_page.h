@@ -144,7 +144,9 @@ class BPlusTreePage {
 
   // 最大大小：记录页面最多能存储的键值对数量（类比：货架最大能存放物品数量）
   int max_size_;
+
   page_id_t page_id_;
+
   page_id_t father_page_id;
 };
 

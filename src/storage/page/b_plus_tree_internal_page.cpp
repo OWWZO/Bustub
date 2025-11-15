@@ -161,6 +161,12 @@ bool B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertKeyValue(const KeyComparator &compara
 }
 
 INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::UpdateKey(int index, page_id_t id)
+  -> void {
+  page_id_array_[index]=id;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::UpdateKey(int index, std::optional<KeyType> update_key)
   -> void {
     key_array_[index]=update_key.value();

@@ -14,7 +14,7 @@
 namespace bustub {
 
 using bustub::DiskManagerUnlimitedMemory;
-
+//TODO draw偏移量的改变是否和声明位置相关？
 TEST(BPlusTreeTests, TombstoneBasicTest) {
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());
@@ -37,6 +37,7 @@ TEST(BPlusTreeTests, TombstoneBasicTest) {
     rid.Set(static_cast<int32_t>(i >> 32), value);
     index_key.SetFromInteger(i);
     tree.Insert(index_key, rid);
+    tree.Draw(bpm, "b_plus_tree.dot");
     expected.push_back(i);
   }
 
@@ -74,7 +75,7 @@ kirillk 依据文档回复：按规范，墓碑处理应在删除操作时进行
 kirillk 疑问：若墓碑存储键索引（如[3,5,7,9]），删除低索引项（如索引 3）后，墓碑应变为[5,7,9]还是调整为[4,6,8]？
 其认为需调整：因删除靠前键会导致后续值移位，索引需同步更新。
 墓碑与分裂 / 插入规则（Miketud04 观点）：
-分裂判断：基于逻辑大小（GetRealSize() - tombstone.size()），若逻辑大小≥MaxSize()则分裂，否则即使索引超MaxSize()仍直接插入。
+分裂判断：基于逻辑大小（GetSize() - tombstone.size()），若逻辑大小≥MaxSize()则分裂，否则即使索引超MaxSize()仍直接插入。
 墓碑满时处理：仅处理最早的墓碑，更新键 / 值数组，并将剩余墓碑中大于 “已处理索引” 的项减 1。
 分裂时墓碑处理：按逻辑大小确定分裂点，同步拆分墓碑数组；合并逻辑较直观。*/
   EXPECT_EQ(tombstones.size(), to_delete.size());
@@ -90,7 +91,7 @@ kirillk 疑问：若墓碑存储键索引（如[3,5,7,9]），删除低索引项
     index_key.SetFromInteger(key);
     tree.Insert(index_key, rid);
   }
-
+  tree.Draw(bpm, "b_plus_tree.dot");
   leaf = IndexLeaves<GenericKey<8>, RID, GenericComparator<8>, 2>(tree.GetRootPageId(), bpm);
   while (leaf.Valid()) {
     EXPECT_EQ((*leaf)->GetTombstones().size(), 0);
@@ -121,12 +122,13 @@ kirillk 疑问：若墓碑存储键索引（如[3,5,7,9]），删除低索引项
       ++leaf_page;
     }
   }
-
+  tree.Draw(bpm, "b_plus_tree.dot");
   for (auto key : to_delete) {
     index_key.SetFromInteger(key);
     tree.Remove(index_key);
+    tree.Draw(bpm, "b_plus_tree.dot");
   }
-
+  tree.Draw(bpm, "b_plus_tree.dot");
   tombstones.clear();
   leaf = IndexLeaves<GenericKey<8>, RID, GenericComparator<8>, 2>(tree.GetRootPageId(), bpm);
   while (leaf.Valid()) {
@@ -144,12 +146,12 @@ kirillk 疑问：若墓碑存储键索引（如[3,5,7,9]），删除低索引项
   index_key.SetFromInteger(to_delete[0]);
   tree.GetValue(index_key, &rids);
   EXPECT_EQ(rids.size(), 0);
-
-  // Test index iterator stays valid for "empty" tree (and that tree isn't fully physically deleted)
-
+  tree.Draw(bpm, "b_plus_tree.dot");
+  // 测试索引迭代器在 “空” 树中保持有效（且树未被完全物理删除）
   for (size_t key = 0; key < num_keys; key++) {
     index_key.SetFromInteger(key);
     tree.Remove(index_key);
+    tree.Draw(bpm, "b_plus_tree.dot");
   }
 
   leaf = IndexLeaves<GenericKey<8>, RID, GenericComparator<8>, 2>(tree.GetRootPageId(), bpm);
@@ -159,7 +161,8 @@ kirillk 疑问：若墓碑存储键索引（如[3,5,7,9]），删除低索引项
     ++leaf;
   }
 
-  // Worst case: all keys are in full leaf nodes and so only 2 entries are tombed per.
+  // 最坏情况：所有键都在完整的叶节点中，因此每个叶节点中只有 2 个条目被标记删除。
+  //第一个参数的值是否大于第二个参数的值
   EXPECT_GT(tot_tombs, ((num_keys - 1) / 4) * 2);
   EXPECT_LT(tot_tombs, num_keys);
   EXPECT_EQ(tree.Begin().IsEnd(), true);
@@ -193,7 +196,9 @@ TEST(BPlusTreeTests, TombstoneSplitTest) {
   index_key.SetFromInteger(3);
   tree.Remove(index_key);
 
-  tree.Draw(bpm, "b_plus_tree.dot");  index_key.SetFromInteger(2);
+  //打印不出墓碑 是draw的问题 实际调试我能看到
+  tree.Draw(bpm, "b_plus_tree.dot");
+  index_key.SetFromInteger(2);
 
   tree.Remove(index_key);
 
@@ -272,9 +277,10 @@ TEST(BPlusTreeTests, TombstoneBorrowTest) {
     to_remove.push_back(right_page->KeyAt(1));
     to_remove.push_back(right_page->KeyAt(0));
   }
-
+  tree.Draw(bpm, "b_plus_tree.dot");
   for (auto k : to_remove) {
     tree.Remove(k);
+    tree.Draw(bpm, "b_plus_tree.dot");
   }
 
   std::vector<int64_t> tombstones;
@@ -318,6 +324,7 @@ TEST(BPlusTreeTests, TombstoneCoalesceTest) {
     tree.Insert(index_key, rid);
   }
 
+  tree.Draw(bpm, "b_plus_tree.dot");
   page_id_t larger_pid;
   page_id_t smaller_pid;
   auto leaf = IndexLeaves<GenericKey<8>, RID, GenericComparator<8>, 2>(tree.GetRootPageId(), bpm);
@@ -341,8 +348,11 @@ TEST(BPlusTreeTests, TombstoneCoalesceTest) {
     to_delete.push_back(larger_page->KeyAt(0));
     to_delete.push_back(smaller_page->KeyAt(2));
   }
+  //5 0 6 1 3 2
+  tree.Draw(bpm, "b_plus_tree.dot");
   for (auto k : to_delete) {
     tree.Remove(k);
+    tree.Draw(bpm, "b_plus_tree.dot");
   }
 
   size_t num_leaves = 0;

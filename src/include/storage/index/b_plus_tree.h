@@ -137,6 +137,13 @@ class BPlusTree {
                           is_update);
 
   void DeepUpdate(B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write, KeyType temp_key);
+
+
+  auto IsRightMerge(B_PLUS_TREE_LEAF_PAGE_TYPE *leaf_write) ->std::optional<bool>;
+
+  std::optional<bool> MergeClean(WritePageGuard &leaf_guard);
+
+  bool DistributionClean(B_PLUS_TREE_LEAF_PAGE_TYPE *leaf_write);
   // 从B+树中删除一个键及其对应的值
   // 类比：根据食材编号（key），从仓库里把对应的食材（value）拿走
   void Remove(const KeyType &key);
