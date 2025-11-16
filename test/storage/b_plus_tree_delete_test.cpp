@@ -114,6 +114,7 @@ TEST(BPlusTreeTests,OptimisticDeleteTest) {
   }
 
   size_t to_delete = num_keys + 1;
+
   auto leaf = IndexLeaves<GenericKey<8>, RID, GenericComparator<8>>(tree.GetRootPageId(), bpm);
   while (leaf.Valid()) {
     if ((*leaf)->GetSize() > (*leaf)->GetMinSize()) {
