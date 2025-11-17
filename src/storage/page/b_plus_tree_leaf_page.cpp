@@ -74,6 +74,15 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetRealSize() const -> int {
   return GetSize() - static_cast<int>(num_tombstones_);
 }
 
+FULL_INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetNeedUpdate() -> bool {
+  return need_deep_update_;
+}
+
+FULL_INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::SetNeedUpdate(bool set) -> void {
+  need_deep_update_=set;
+}
 /**
  * Helper methods to set/get next page id
  */
@@ -273,7 +282,50 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Delete(const KeyType key, const KeyComparator &
   if (LEAF_PAGE_TOMB_CNT > 0 && GetNumTombstones() >= static_cast<size_t>(LEAF_PAGE_TOMB_CNT)) {
     // 保存要处理的墓碑索
     processed_tomb_index = static_cast<int>(tombstones_[0]);
-    ProcessOldestTombstone();
+
+    if (GetNumTombstones() == 0) {
+      return;
+    }
+
+    // 最早的墓碑是tombstones_[0]（按删除顺序）
+    int tomb_index = static_cast<int>(tombstones_[0]);
+
+    // 保存被删除的键（用于更新父节点）
+    KeyType deleted_key = key_array_[tomb_index];
+    bool is_first_key = (tomb_index == 0);
+
+    // 先调整所有剩余墓碑的索引：如果墓碑索引 > tomb_index，需要减1
+    // 注意：必须在物理删除之前调整，因为物理删除会改变数组
+    for (size_t i = 1; i < GetNumTombstones(); i++) {
+      if (tombstones_[i] > static_cast<size_t>(tomb_index)) {
+        tombstones_[i]--;
+      }
+    }
+
+    // 物理删除：移动数组元素
+    // size_ 是物理存储的键总数（包括墓碑），所以总大小就是 GetSize()
+    int total_size = GetSize();
+    for (int i = tomb_index; i < total_size - 1; i++) {
+      key_array_[i] = key_array_[i + 1];
+      rid_array_[i] = rid_array_[i + 1];
+    }
+
+    // 移除最早的墓碑（tombstones_[0]），将后面的墓碑前移
+    for (size_t i = 0; i < GetNumTombstones() - 1; i++) {
+      tombstones_[i] = tombstones_[i + 1];
+    }
+    SetNumTombstones(GetNumTombstones() - 1);
+
+    // 减少size_（物理删除了一个键）
+    ChangeSizeBy(-1);
+
+    //这里为处理之前墓碑标记的键被挤出去的情况 即用need_deep_update来辅助更新父页 此时之前的墓碑标记的首键还没有被清除 但是上面已经物理清除了
+    //is_first_key为是否挤出去的是首键
+    if (is_first_key) {
+      //因为只有墓碑清除函数才记录这个key
+      before_first_key_ = deleted_key;
+      need_deep_update_=true;
+    }
     processed_tombstone = true;
   }
   
@@ -285,10 +337,8 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Delete(const KeyType key, const KeyComparator &
   
   // 乐观删除 标记墓碑 不物理删
   MarkTomb(index);
-  if (index==0) {
-    if (!is_update_) {
-      before_first_key_ = key;
-    }
+  //处理首次标记首键的情况
+  if (!is_update_&&index==0) {
     is_update_=true;
   }
 }
@@ -377,14 +427,14 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::ProcessOldestTombstone() {
   if (GetNumTombstones() == 0) {
     return;
   }
-  
+
   // 最早的墓碑是tombstones_[0]（按删除顺序）
   int tomb_index = static_cast<int>(tombstones_[0]);
-  
+
   // 保存被删除的键（用于更新父节点）
   KeyType deleted_key = key_array_[tomb_index];
   bool is_first_key = (tomb_index == 0);
-  
+
   // 先调整所有剩余墓碑的索引：如果墓碑索引 > tomb_index，需要减1
   // 注意：必须在物理删除之前调整，因为物理删除会改变数组
   for (size_t i = 1; i < GetNumTombstones(); i++) {
@@ -392,7 +442,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::ProcessOldestTombstone() {
       tombstones_[i]--;
     }
   }
-  
+
   // 物理删除：移动数组元素
   // size_ 是物理存储的键总数（包括墓碑），所以总大小就是 GetSize()
   int total_size = GetSize();
@@ -400,23 +450,30 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::ProcessOldestTombstone() {
     key_array_[i] = key_array_[i + 1];
     rid_array_[i] = rid_array_[i + 1];
   }
-  
+
   // 移除最早的墓碑（tombstones_[0]），将后面的墓碑前移
   for (size_t i = 0; i < GetNumTombstones() - 1; i++) {
     tombstones_[i] = tombstones_[i + 1];
   }
   SetNumTombstones(GetNumTombstones() - 1);
-  
+
   // 减少size_（物理删除了一个键）
   ChangeSizeBy(-1);
-  
+
   // 如果删除的是首键，需要标记更新
   if (is_first_key) {
     // 如果is_update_为false，设置before_first_key_为被删除的键
     // 如果is_update_已经为true，说明之前标记过首键删除，现在实际物理删除了，需要更新before_first_key_
     // 因为这是实际被物理删除的首键，用于后续更新父页
     before_first_key_ = deleted_key;
-    is_update_ = true;
+
+    //如果首键的第二个键已经被标记
+    if (IsTombstone(0)){
+      is_update_ = true;
+    }else {
+      is_update_=false;
+    }
+    need_deep_update_=true;
   }
 }
 
@@ -430,7 +487,7 @@ FULL_INDEX_TEMPLATE_ARGUMENTS
 bool B_PLUS_TREE_LEAF_PAGE_TYPE::IsEmpty(){
   // 根据文档：应该基于逻辑大小（有效键数量）来判断是否为空
   // 如果逻辑大小为0，说明所有键都是墓碑，应该被认为是空的
-  return GetRealSize() == 0;
+  return GetSize() == 0;
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
@@ -440,12 +497,9 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::CleanupTombs() {
   ValueType new_rid_array[LEAF_PAGE_SLOT_CNT];
   int new_size = 0;
 
-  // 如果is_update_为true，说明之前删除过首键，before_first_key_应该已经在Delete或ProcessOldestTombstone中设置过了
-  // 我们不应该在这里修改before_first_key_，因为它保存的是删除前的首键，用于后续更新父页
-  // 如果is_update_为false，可以更新before_first_key_为清理后的首键（虽然这可能不是必需的）
-  if (!is_update_ && GetSize() > 0) {
+    //记录墓碑清除（包含首键的清除）前的首键 方便下溢clean后的父页信息更新
+    //父页更新的更新键可以直接去minkey即可 无需记录
     before_first_key_ = key_array_[0];
-  }
 
   // 遍历所有键 只保留非墓碑的键
   // size_ 是物理存储的键总数（包括墓碑），所以总大小就是 GetSize()

@@ -137,7 +137,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   void MarkTomb(int index);
   bool IsTombstone(int index) const;
   void RemoveTombstone(int index);
-  void ProcessOldestTombstone();  // 处理最早的墓碑：物理删除并调整索引
+  void ProcessOldestTombstone();  //删除最前的墓碑数组的元素 然后更新beforefirstkey的信息 更新isupdate
   bool IsUpdate();
   bool IsEmpty();
   void CleanupTombs();
@@ -194,6 +194,9 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    * @return 逻辑大小 = GetSize() + num_tombstones_（因为删除时size减1但墓碑加1）
    */
   auto GetRealSize() const -> int;
+
+  auto GetNeedUpdate()-> bool;
+  auto SetNeedUpdate(bool set) -> void;
 
   auto BinarySearch(const KeyComparator& comparator,const KeyType &key)->int;
 
@@ -259,7 +262,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
 
   KeyType before_first_key_;
 
-  bool need_deep_update;
+  bool need_deep_update_;
   // 注释：2025年春季学期补充，允许根据需要添加更多私有成员变量和辅助函数
   // (Spring 2025) Feel free to add more fields and helper functions below if needed
 };

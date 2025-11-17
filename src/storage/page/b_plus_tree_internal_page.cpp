@@ -28,7 +28,7 @@ namespace bustub {
 必须在创建新页后调用，以生成有效的 BPlusTreeInternalPage。
 @param max_size 页的最大大小
 */
-//TODO(wwz): 页类型 size 和maxsize已经设置   剩余页id 和父id
+
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Init(int max_size) {
   SetPageType(IndexPageType::INTERNAL_PAGE);
@@ -140,7 +140,6 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::FirstInsert(
 INDEX_TEMPLATE_ARGUMENTS
 bool B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertKeyValue(const KeyComparator &comparator,
                                                     const KeyType &key, const ValueType &value) {
-  //TODO(wwz): insert不处理满了的逻辑 只在未满的前提下进行插入
     auto index = BinarySearch(comparator, key);
     if (index==-1) {
       return false;

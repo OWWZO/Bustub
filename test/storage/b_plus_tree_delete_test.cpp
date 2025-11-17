@@ -161,6 +161,7 @@ TEST(BPlusTreeTests,SequentialEdgeMixTest) {  // NOLINT
     std::vector<int64_t> keys = {1, 5, 15, 20, 25, 2, -1, -2, 6, 14, 4};
     std::vector<int64_t> inserted = {};
     std::vector<int64_t> deleted = {};
+
     for (auto key : keys) {
       int64_t value = key & 0xFFFFFFFF;
       rid.Set(static_cast<int32_t>(key >> 32), value);
@@ -171,6 +172,7 @@ TEST(BPlusTreeTests,SequentialEdgeMixTest) {  // NOLINT
       auto res = TreeValuesMatch<GenericKey<8>, RID, GenericComparator<8>, 2>(tree, inserted, deleted);
       ASSERT_TRUE(res);
     }
+
     tree.Draw(bpm, "b_plus_tree.dot");
     index_key.SetFromInteger(1);
     tree.Remove(index_key);
@@ -203,4 +205,5 @@ TEST(BPlusTreeTests,SequentialEdgeMixTest) {  // NOLINT
 
   delete bpm;
 }
+
 }  // namespace bustub

@@ -118,7 +118,7 @@ class BPlusTree {
   auto Insert(const KeyType &key, const ValueType &value) -> bool;
 
   //原理 插入导致的变动 写个递归来逐层检验父页的变动是否要进行处理
-  void PushUp(page_id_t id, WritePageGuard& write_guard);
+  void PushUp(WritePageGuard& write_guard);
 
   void RedistributeForLeaf(page_id_t page_id, B_PLUS_TREE_LEAF_PAGE_TYPE* leaf_write);
   void RedistributeForInternal(page_id_t page_id,

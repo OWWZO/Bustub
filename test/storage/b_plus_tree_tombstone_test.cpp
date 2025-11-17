@@ -14,7 +14,6 @@
 namespace bustub {
 
 using bustub::DiskManagerUnlimitedMemory;
-//TODO draw偏移量的改变是否和声明位置相关？
 TEST(BPlusTreeTests, TombstoneBasicTest) {
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());
@@ -365,7 +364,7 @@ TEST(BPlusTreeTests, TombstoneCoalesceTest) {
     num_leaves++;
     ++leaf;
   }
-
+  //5 0 6 1 3 2
   EXPECT_EQ(num_leaves, 1);
   auto page = bpm->ReadPage(remaining_pid).As<LeafPage>();
   auto tombstones = page->GetTombstones();
