@@ -111,6 +111,7 @@ TEST(BPlusTreeTests,OptimisticDeleteTest) {
     rid.Set(static_cast<int32_t>(i >> 32), value);
     index_key.SetFromInteger(i);
     tree.Insert(index_key, rid);
+    tree.Draw(bpm, "b_plus_tree.dot");
   }
 
   size_t to_delete = num_keys + 1;
@@ -170,13 +171,13 @@ TEST(BPlusTreeTests,SequentialEdgeMixTest) {  // NOLINT
       auto res = TreeValuesMatch<GenericKey<8>, RID, GenericComparator<8>, 2>(tree, inserted, deleted);
       ASSERT_TRUE(res);
     }
-
+    tree.Draw(bpm, "b_plus_tree.dot");
     index_key.SetFromInteger(1);
     tree.Remove(index_key);
     deleted.push_back(1);
     inserted.erase(std::find(inserted.begin(), inserted.end(), 1));
 
-
+    tree.Draw(bpm, "b_plus_tree.dot");
     auto res = TreeValuesMatch<GenericKey<8>, RID, GenericComparator<8>, 2>(tree, inserted, deleted);
     ASSERT_TRUE(res);
 
@@ -186,7 +187,7 @@ TEST(BPlusTreeTests,SequentialEdgeMixTest) {  // NOLINT
     inserted.push_back(3);
     res = TreeValuesMatch<GenericKey<8>, RID, GenericComparator<8>, 2>(tree, inserted, deleted);
     ASSERT_TRUE(res);
-    tree.Draw(bpm, "b_plus_tree.dot");
+
     keys = {4, 14, 6, 2, 15, -2, -1, 3, 5, 25, 20};
     for (auto key : keys) {
       index_key.SetFromInteger(key);

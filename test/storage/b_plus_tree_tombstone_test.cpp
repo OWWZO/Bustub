@@ -192,6 +192,7 @@ TEST(BPlusTreeTests, TombstoneSplitTest) {
     rid.Set(static_cast<int32_t>(i >> 32), value);
     index_key.SetFromInteger(i);
     tree.Insert(index_key, rid);
+    tree.Draw(bpm, "b_plus_tree.dot");
   }
   index_key.SetFromInteger(3);
   tree.Remove(index_key);
@@ -212,6 +213,7 @@ TEST(BPlusTreeTests, TombstoneSplitTest) {
     rid.Set(static_cast<int32_t>(i >> 32), value);
     index_key.SetFromInteger(i);
     tree.Insert(index_key, rid);
+    tree.Draw(bpm, "b_plus_tree.dot");
     i++;
   }
 

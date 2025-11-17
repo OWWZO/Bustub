@@ -208,7 +208,6 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   auto PopBack() -> std::pair<KeyType, ValueType>;
   std::pair<KeyType, ValueType> PopFront();
   auto GetBeforeFirstKey() const -> KeyType;
-  auto GetCleanBeforeFirstKey() const -> KeyType;
 
   void Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page);
 
@@ -260,7 +259,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
 
   KeyType before_first_key_;
 
-  KeyType clean_before_first_key_;
+  bool need_deep_update;
   // 注释：2025年春季学期补充，允许根据需要添加更多私有成员变量和辅助函数
   // (Spring 2025) Feel free to add more fields and helper functions below if needed
 };

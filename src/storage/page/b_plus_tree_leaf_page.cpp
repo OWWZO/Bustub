@@ -257,6 +257,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Delete(const KeyType key, const KeyComparator &
       rid_array_[i] = rid_array_[i + 1];
     }
     ChangeSizeBy(-1);
+    //第一次注册
     if (index == 0) {
       if (!is_update_) {
         before_first_key_ = key;
@@ -270,7 +271,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Delete(const KeyType key, const KeyComparator &
   bool processed_tombstone = false;
   int processed_tomb_index = -1;
   if (LEAF_PAGE_TOMB_CNT > 0 && GetNumTombstones() >= static_cast<size_t>(LEAF_PAGE_TOMB_CNT)) {
-    // 保存要处理的墓碑索引
+    // 保存要处理的墓碑索
     processed_tomb_index = static_cast<int>(tombstones_[0]);
     ProcessOldestTombstone();
     processed_tombstone = true;
@@ -282,9 +283,12 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Delete(const KeyType key, const KeyComparator &
     index--;
   }
   
-  // 乐观删除 标记墓碑 不物理删除
+  // 乐观删除 标记墓碑 不物理删
   MarkTomb(index);
   if (index==0) {
+    if (!is_update_) {
+      before_first_key_ = key;
+    }
     is_update_=true;
   }
 }
@@ -408,9 +412,10 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::ProcessOldestTombstone() {
   
   // 如果删除的是首键，需要标记更新
   if (is_first_key) {
-    if (!is_update_) {
-      before_first_key_ = deleted_key;
-    }
+    // 如果is_update_为false，设置before_first_key_为被删除的键
+    // 如果is_update_已经为true，说明之前标记过首键删除，现在实际物理删除了，需要更新before_first_key_
+    // 因为这是实际被物理删除的首键，用于后续更新父页
+    before_first_key_ = deleted_key;
     is_update_ = true;
   }
 }
@@ -435,7 +440,13 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::CleanupTombs() {
   ValueType new_rid_array[LEAF_PAGE_SLOT_CNT];
   int new_size = 0;
 
-  clean_before_first_key_=key_array_[0];
+  // 如果is_update_为true，说明之前删除过首键，before_first_key_应该已经在Delete或ProcessOldestTombstone中设置过了
+  // 我们不应该在这里修改before_first_key_，因为它保存的是删除前的首键，用于后续更新父页
+  // 如果is_update_为false，可以更新before_first_key_为清理后的首键（虽然这可能不是必需的）
+  if (!is_update_ && GetSize() > 0) {
+    before_first_key_ = key_array_[0];
+  }
+
   // 遍历所有键 只保留非墓碑的键
   // size_ 是物理存储的键总数（包括墓碑），所以总大小就是 GetSize()
   for (int i = 0; i < GetSize(); i++) {
@@ -599,10 +610,6 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetBeforeFirstKey() const -> KeyType {
   return before_first_key_;
 }
 
-FULL_INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_LEAF_PAGE_TYPE::GetCleanBeforeFirstKey() const -> KeyType {
-  return clean_before_first_key_;
-}
 
 FULL_INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_LEAF_PAGE_TYPE::Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page) {
@@ -611,49 +618,47 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page
   new_leaf_page->pre_page_id_=GetPageId();//1
   next_page_id_=new_leaf_page->GetPageId();//2
 
-  // 根据逻辑大小计算分裂点
-  int real_size = GetRealSize();
-  int split_point = real_size / 2;  // 分裂点基于逻辑大小
-  
-  // 统计左页的有效键数量（用于确定分裂点）
+  // 根据物理大小计算分裂点（包括墓碑在内的所有键值对）
   // size_ 是物理存储的键总数（包括墓碑），所以总大小就是 GetSize()
-  int left_valid_count = 0;
-  int split_index = -1;
   int total_size = GetSize();
-  for (int i = 0; i < total_size; i++) {
-    if (!IsTombstone(i)) {
-      left_valid_count++;
-      if (left_valid_count == split_point) {
-        split_index = i + 1;  // 分裂点：从split_index开始移到右页
-        break;
+  int split_point = total_size / 2;  // 分裂点基于物理大小
+  int split_index = split_point;  // 分裂点：从split_index开始移到右页
+  
+  // 第一步：先收集需要移到新页的墓碑信息（保持原页墓碑数组中的顺序）
+  // 创建一个映射：原页索引 -> 新页索引
+  std::vector<std::pair<size_t, size_t>> tombstone_mapping;  // (原页索引, 新页索引)
+  if (LEAF_PAGE_TOMB_CNT > 0) {
+    // 先遍历原页的墓碑数组，找出所有 >= split_index 的墓碑
+    // 按照它们在原页墓碑数组中的顺序来收集
+    for (size_t i = 0; i < GetNumTombstones(); i++) {
+      if (tombstones_[i] >= static_cast<size_t>(split_index)) {
+        // 计算这个墓碑在新页中的索引位置
+        size_t new_index = tombstones_[i] - static_cast<size_t>(split_index);
+        tombstone_mapping.push_back(std::make_pair(tombstones_[i], new_index));
       }
     }
   }
   
-  // 如果没找到分裂点，说明所有键都在左页
-  if (split_index == -1) {
-    split_index = total_size;
-  }
-  
-  // 将split_index之后的元素移到新页
+  // 第二步：将split_index之后的元素移到新页（包括墓碑在内的所有元素）
   int new_page_pos = 0;  // 新页中的位置
   for (int i = split_index; i < total_size; i++) {
     new_leaf_page->key_array_[new_page_pos] = key_array_[i];
     new_leaf_page->rid_array_[new_page_pos] = rid_array_[i];
-    
-    // 如果是墓碑，需要移到新页的墓碑数组
-    if (LEAF_PAGE_TOMB_CNT > 0 && IsTombstone(i)) {
-      new_leaf_page->tombstones_[new_leaf_page->GetNumTombstones()] = static_cast<size_t>(new_page_pos);
-      new_leaf_page->SetNumTombstones(new_leaf_page->GetNumTombstones() + 1);
-    } else {
-      // 不是墓碑，增加新页的size
-      new_leaf_page->ChangeSizeBy(1);
-    }
+    // 所有元素（包括墓碑）都增加新页的物理size
+    new_leaf_page->ChangeSizeBy(1);
     new_page_pos++;
   }
   
-  // 从原页移除已移到新页的元素和墓碑
-  // 先处理墓碑：移除属于右页的墓碑，保留左页的墓碑
+  // 第三步：按照原页墓碑数组中的顺序，将墓碑添加到新页的墓碑数组
+  if (LEAF_PAGE_TOMB_CNT > 0) {
+    for (const auto& pair : tombstone_mapping) {
+      new_leaf_page->tombstones_[new_leaf_page->GetNumTombstones()] = pair.second;
+      new_leaf_page->SetNumTombstones(new_leaf_page->GetNumTombstones() + 1);
+    }
+  }
+  
+  // 第四步：从原页移除已移到新页的元素和墓碑
+  // 处理墓碑：移除属于右页的墓碑，保留左页的墓碑
   if (LEAF_PAGE_TOMB_CNT > 0) {
     size_t new_num_tombs = 0;
     for (size_t i = 0; i < GetNumTombstones(); i++) {
@@ -667,14 +672,9 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Split(B_PLUS_TREE_LEAF_PAGE_TYPE* new_leaf_page
     SetNumTombstones(new_num_tombs);
   }
   
-  // 更新原页的size：移除已移到新页的有效键
-  int moved_valid_count = 0;
-  for (int i = split_index; i < total_size; i++) {
-    if (!IsTombstone(i)) {
-      moved_valid_count++;
-    }
-  }
-  ChangeSizeBy(-moved_valid_count);
+  // 更新原页的物理size：移除已移到新页的所有元素（包括墓碑）
+  int moved_count = total_size - split_index;  // 移动的物理元素数量
+  ChangeSizeBy(-moved_count);
 }
 
 FULL_INDEX_TEMPLATE_ARGUMENTS

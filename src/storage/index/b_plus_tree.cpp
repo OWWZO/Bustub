@@ -337,8 +337,8 @@ void BPLUSTREE_TYPE::PushUp(page_id_t id, WritePageGuard& write_guard) {
   if (temp_write->IsLeafPage()) {
     auto page_write=write_guard.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
     //一层模型 如果第一个叶子页满了 就先分裂 再判断有无父页
-    // 根据文档：分裂判断依据为逻辑大小（GetRealSize()），而非基于原始size_
-    if (page_write->GetRealSize() >= page_write->GetMaxSize()) {
+    // 分裂判断依据为物理大小（GetSize()），包括墓碑在内的所有键值对
+    if (page_write->GetSize() >= page_write->GetMaxSize()) {
       auto new_page_id = bpm_->NewPage();
       auto new_page_guard = bpm_->WritePage(new_page_id);
       auto new_page_write = new_page_guard.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
@@ -640,15 +640,19 @@ void BPLUSTREE_TYPE::MergeForLeaf(WritePageGuard &leaf_guard) {
         pre_absorb_first_key =leaf_write->GetMinKey();
       }
       //将左叶融入当前页
-       leaf_write->Absorb(left_write);//TODO 融合之后要delete页
-
+      leaf_write->Absorb(left_write);
+      
+      // 保存需要的信息，然后删除被合并的页面
+      KeyType left_min_key = left_write->GetMinKey();
+      page_id_t left_page_id_to_delete = left_write->GetPageId();
       auto father_id=leaf_write->GetFatherPageId();
+      left_guard.Drop();  // 先 drop left_guard，然后才能删除页面
+      
       auto father_page=bpm_->WritePage(father_id);
       auto father_write=father_page.template AsMut<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
 
-      //TODO 整个项目不能出现 guard没了 还在读写的情况
       //虽然size为0 但是还是能访问到第一个key
-      auto index= father_write->MatchKey(left_write->GetMinKey(),comparator_);
+      auto index= father_write->MatchKey(left_min_key,comparator_);
 
       //直接夺舍
       if (pre_size==0) {
@@ -660,6 +664,8 @@ void BPLUSTREE_TYPE::MergeForLeaf(WritePageGuard &leaf_guard) {
 
           father_write->UpdateKey(index,leaf_write->GetPageId());
       }
+      // 删除被合并的页面（left_write）
+      bpm_->DeletePage(left_page_id_to_delete);
       return;
     }
   }
@@ -683,8 +689,12 @@ void BPLUSTREE_TYPE::MergeForLeaf(WritePageGuard &leaf_guard) {
     auto pre_is_empty=leaf_write->GetSize();
     //将右页融入当前页
     auto begin_key= leaf_write->Absorb(right_write);
-
+    
+    // 保存需要的信息，然后删除被合并的页面
+    page_id_t right_page_id_to_delete = right_write->GetPageId();
     auto father_id=leaf_write->GetFatherPageId();
+    right_guard.Drop();  // 先 drop right_guard，然后才能删除页面
+
     auto father_page=bpm_->WritePage(father_id);
     auto father_write=father_page.template AsMut<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
     if (pre_is_empty!=0) {
@@ -695,6 +705,8 @@ void BPLUSTREE_TYPE::MergeForLeaf(WritePageGuard &leaf_guard) {
       auto index= father_write->MatchKey(begin_key,comparator_);
       father_write->UpdateKey(index,leaf_write->GetPageId());
     }
+    // 删除被合并的页面（right_write）
+    bpm_->DeletePage(right_page_id_to_delete);
   }
   }
 }
@@ -729,6 +741,10 @@ void BPLUSTREE_TYPE::MergeForInternal(WritePageGuard &internal_guard) {
       //然后删除父页里的键
       auto index= father_write->MatchKey(begin_key,comparator_);
       father_write->DeletePair(index);
+      // 删除被合并的页面（internal_write）
+      page_id_t page_id_to_delete = internal_write->GetPageId();
+      internal_guard.Drop();
+      bpm_->DeletePage(page_id_to_delete);
       return;
     }
   }
@@ -752,6 +768,10 @@ void BPLUSTREE_TYPE::MergeForInternal(WritePageGuard &internal_guard) {
     //然后删除父页里的键
     auto index= father_write->MatchKey(begin_key,comparator_);
     father_write->DeletePair(index);
+    // 删除被合并的页面（right_write）
+    page_id_t page_id_to_delete = right_write->GetPageId();
+    right_guard.Drop();
+    bpm_->DeletePage(page_id_to_delete);
   }
 }
 
@@ -807,7 +827,7 @@ FULL_INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::CheckForLeaf(WritePageGuard &leaf_guard) {
     auto leaf_write = leaf_guard.template AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
     //如果少了 就分配（基于物理大小判断）
-    // 根据文档：分裂判断基于逻辑大小（GetRealSize()），但下溢判断应该基于物理大小（GetSize()）
+    // 分裂判断和下溢判断都基于物理大小（GetSize()），包括墓碑在内的所有键值对
     if (leaf_write->GetSize() < leaf_write->GetMinSize()) {
       //优先分配
       auto page_id=IsDistributeForLeaf(leaf_write);
@@ -1010,7 +1030,9 @@ std::optional<bool> BPLUSTREE_TYPE::MergeClean(WritePageGuard &leaf_guard) {
         auto father_guard_w = bpm_->WritePage(leaf_write->GetFatherPageId());
         auto father_write = father_guard_w.template AsMut<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
 
-        auto father_index = father_write->MatchKey(leaf_write->GetBeforeFirstKey(), comparator_);
+
+        auto father_index = father_write->MatchKey
+        (leaf_write->GetBeforeFirstKey(), comparator_);
 
         //说明是父页的首键 就要递归向上更新信息
         if (father_index==0) {
@@ -1024,7 +1046,9 @@ std::optional<bool> BPLUSTREE_TYPE::MergeClean(WritePageGuard &leaf_guard) {
           father_write->UpdateKey(father_index, leaf_write->GetMinKey());
         }
         leaf_write->SetIsUpdate(false);
+
       }else if (leaf_write->IsEmpty()) {
+
         auto father_guard_w = bpm_->WritePage(leaf_write->GetFatherPageId());
         auto father_write = father_guard_w.template AsMut<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
 
@@ -1122,8 +1146,34 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
   if (!DistributionClean(leaf_write)) {
     //是右则清除 否则不清除
     auto result= MergeClean(leaf_guard);
-    if (!result.has_value()||!result.value()) {
-      //说明此页未下溢出 无需check 或者被删除
+
+    if (!result.has_value()&&LEAF_PAGE_TOMB_CNT != 0) {
+      //说明此页未下溢出 无需check
+      // 但是，如果ProcessOldestTombstone删除了首键（is_update_为true），需要更新父页
+      if (leaf_write->IsUpdate() && !leaf_write->IsEmpty()) {
+        DeepUpdate(leaf_write, leaf_write->GetBeforeFirstKey());
+      } else if (leaf_write->IsUpdate() && leaf_write->IsEmpty()) {
+        // 如果页为空，需要删除父页中的条目
+        auto father_guard_w = bpm_->WritePage(leaf_write->GetFatherPageId());
+        auto father_write = father_guard_w.template AsMut<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
+        auto father_index = father_write->MatchKey(leaf_write->GetBeforeFirstKey(), comparator_);
+        if (father_index == 0) {
+          father_write->DeletePair(father_index);
+          if (father_write->GetSize() != 0) {
+            DeepDeleteOrUpdate(leaf_write->GetBeforeFirstKey(), father_write->GetMinKey(), father_write, true);
+          } else {
+            DeepDeleteOrUpdate(leaf_write->GetBeforeFirstKey(), std::nullopt, father_write, false);
+          }
+        } else {
+          father_write->DeletePair(father_index);
+        }
+        leaf_write->SetIsUpdate(false);
+      }
+      return;
+    }
+
+    if (result.has_value() && !result.value()) {
+      //说明页已被删除，直接返回
       return;
     }
   }
