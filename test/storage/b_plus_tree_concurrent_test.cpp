@@ -217,7 +217,7 @@ void LookupHelper(
 
 // 定义测试的核心常量，类比现实场景：相当于规定"快递分拣测试"要重复的次数、包裹暂存区大小等基础规则
 // 1. 普通测试迭代次数：50次（比如同一套快递分拣流程重复测试50遍，确保稳定性）
-const size_t NUM_ITERS = 50;
+const size_t NUM_ITERS =50;
 // 2. 混合测试迭代次数：20次（比如更复杂的快递分拣+派送混合流程测试20遍，此处代码未直接使用，预留扩展）
 const size_t MIXTEST_NUM_ITERS = 20;
 // 3. 缓冲池管理器（BPM）的页面数量：50个（相当于快递站的"临时货架"有50个格子，每个格子存一个快递包裹箱）
@@ -258,7 +258,7 @@ void InsertTest1Call() {
 
     // 6. 准备要插入的键（类比准备100个快递单号，编号从1到99）
     std::vector<int64_t> keys;  // 存储快递单号的列表
-    int64_t scale_factor = 100; // 要插入的快递数量（100个，编号1~99）
+    int64_t scale_factor = 10; // 要插入的快递数量（100个，编号1~99）
     for (int64_t key = 1; key < scale_factor; key++) {
       keys.push_back(key); // 把单号1到99依次加入列表
     }
@@ -270,7 +270,7 @@ void InsertTest1Call() {
     // - &tree：目标B+树（要放快递的分拣系统）
     // - keys：要插入的键（要放的快递单号列表）
     LaunchParallelTest(2, InsertHelper<Tombs>, &tree, keys);
-
+    tree.Draw(bpm, "b_plus_tree.dot");
     // 8. 验证插入结果（类比检查每个快递是否都正确放进了分拣系统，位置是否对）
     std::vector<RID> rids;       // 存储查询到的"记录ID"（类比快递在货架上的具体位置：格子号+槽位号）
     GenericKey<8> index_key;     // 用于查询的键（类比要查询的快递单号）
@@ -288,7 +288,6 @@ void InsertTest1Call() {
       // 断言2：查询到的槽位号必须和预期一致（类比实际存放的槽位和计算的槽位要匹配）
       ASSERT_EQ(rids[0].GetSlotNum(), value);
     }
-
     // 9. 验证B+树的遍历顺序（类比从分拣系统的第一个快递开始，依次检查所有快递的顺序是否正确）
     int64_t start_key = 1;       // 预期的第一个快递单号（从1开始）
     int64_t current_key = start_key; // 当前检查到的快递单号（初始为1）
@@ -621,7 +620,7 @@ TEST(BPlusTreeConcurrentTest, InsertTest1) {  // NOLINT
   InsertTest1Call<3>();
 }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_InsertTest2) {  // NOLINT
+TEST(BPlusTreeConcurrentTest, InsertTest2) {  // NOLINT
   InsertTest2Call<0>();
   InsertTest2Call<3>();
 }

@@ -195,7 +195,7 @@ class BPlusTree {
 
   auto SplitForInternal(BPlusTreeInternalPage<
                           KeyType, page_id_t, KeyComparator> *first_internal_write, BPlusTreeInternalPage<
-                          KeyType, page_id_t, KeyComparator> *second_internal_write) -> KeyType;
+                          KeyType, page_id_t, KeyComparator> *second_internal_write, std::vector<page_id_t> &moved_children) -> KeyType;
   // 缓冲池管理器（注意：不能改成普通的BufferPoolManager类型）
   // 类比：带操作记录功能的食材暂存区管理员（会记录每一次存取操作，方便追溯）
   std::shared_ptr<TracedBufferPoolManager> bpm_;

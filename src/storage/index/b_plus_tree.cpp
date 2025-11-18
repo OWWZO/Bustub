@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "storage/index/b_plus_tree.h"
+#include <algorithm>
 #include "buffer/traced_buffer_pool_manager.h"
 #include "storage/index/b_plus_tree_debug.h"
 
@@ -190,6 +191,7 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
   if (page_id==INVALID_PAGE_ID) {
     return false;
   }
+  header_guard.Drop();
   auto leaf_guard=bpm_->ReadPage(page_id);
   auto leaf_read=leaf_guard.template As<B_PLUS_TREE_LEAF_PAGE_TYPE>();
   leaf_read->FindAndPush(comparator_, key, result);
@@ -204,15 +206,10 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
 FULL_INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::SplitForInternal(
     BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *first_internal_write,
-    BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *second_internal_write) -> KeyType {
-  std::vector<page_id_t> v;
-  auto key= first_internal_write->Split(second_internal_write,v);
-  //取出来 将新内页的元素 father_id 全部改了
-  for (auto &item:v) {
-    auto temp_guard=bpm_->WritePage(item);
-    auto write=temp_guard.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
-    write->SetFatherPageId(second_internal_write->GetPageId());
-  }
+    BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *second_internal_write,
+    std::vector<page_id_t> &moved_children) -> KeyType {
+  moved_children.clear();
+  auto key = first_internal_write->Split(second_internal_write, moved_children);
   return key;
 }
 
@@ -311,13 +308,14 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
       //会将leaf_page_guard给drop掉
         UpdateFather(begin_key,leaf_page_write->GetMinKey(),leaf_page_guard);
 
+      //      leaf_page_write1->SetBegin(false); 要用到leaf_page_write 但是上面的guard已经drop 所以用不了了 要临时申请
       auto leaf_page_guard1 = bpm_->WritePage(page_id);
       auto leaf_page_write1 = leaf_page_guard1.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
       leaf_page_write1->SetBegin(false);
+      PushUp(leaf_page_guard1);
+    }else {
+      PushUp(leaf_page_guard);
     }
-
-    auto leaf_page_guard1 = bpm_->WritePage(page_id);
-    PushUp(leaf_page_guard1);
   }
   return true;
 }
@@ -356,12 +354,17 @@ void BPLUSTREE_TYPE::PushUp(WritePageGuard& write_guard) {
         //将分裂的两个叶子页的父节点设置成当前internal页
         new_page_write->SetFatherPageId(internal_page_id);
         page_write->SetFatherPageId(internal_page_id);
+
+        auto page_write_min_key=page_write->GetMinKey();
+        auto page_write_page_id=page_write->GetPageId();
+        write_guard.Drop();
+
         //然后更新root_page_id
         auto head_guard=bpm_->WritePage(header_page_id_);
         auto head_write=head_guard.AsMut<BPlusTreeHeaderPage>();
         head_write->root_page_id_ = internal_page_id;
         //设置internal页的键值对
-        internal_page_write->FirstInsert(page_write->GetMinKey(),new_page_write->GetMinKey(), page_write->GetPageId(),new_page_write->GetPageId());
+        internal_page_write->FirstInsert(page_write_min_key,new_page_write->GetMinKey(), page_write_page_id,new_page_write->GetPageId());
       }else{
         write_guard.Drop();
         new_page_guard.Drop();
@@ -380,19 +383,34 @@ void BPLUSTREE_TYPE::PushUp(WritePageGuard& write_guard) {
     auto page_write=write_guard.AsMut<BPlusTreeInternalPage<
             KeyType, page_id_t, KeyComparator>>();
     if (GetInternalMaxSize() == page_write->GetSize()) {
-      //创建新内页
       auto new_internal_page_id = bpm_->NewPage();
       auto new_internal_guard = bpm_->WritePage(new_internal_page_id);
       auto new_internal_write = new_internal_guard.AsMut<BPlusTreeInternalPage<
         KeyType, page_id_t, KeyComparator>>();
       new_internal_write->Init(GetInternalMaxSize());
       new_internal_write->SetPageId(new_internal_page_id);
-      //内页满了之后的分裂要特化处理 因为要处理地下叶子页的父节点关系
-      auto split_key = SplitForInternal(page_write, new_internal_write); //实现内页分裂逻辑
-      //建立父内页 提高树高度 将其设置成根页 //这是当高度第一次到3的时候 才要这样操作
-      //parent>father
+      std::vector<page_id_t> moved_children;
+      SplitForInternal(page_write, new_internal_write, moved_children);
+      // 记录必要信息以便在释放锁后安全更新
+      auto first_internal_id = page_write->GetPageId();
+      auto second_internal_id = new_internal_page_id;
+
       page_id_t parent_internal_page_id = page_write->GetFatherPageId();
-      //此为2层 但是2层已经满了 要升级为3层逻辑
+      // 先释放当前两个内页锁，避免父→子锁嵌套
+      write_guard.Drop();
+      new_internal_guard.Drop();
+
+      // 统一按升序更新迁移子页的父指针
+      if (!moved_children.empty()) {
+        std::sort(moved_children.begin(), moved_children.end());
+        for (auto child_id : moved_children) {
+          auto child_guard = bpm_->WritePage(child_id);
+          auto child_page = child_guard.AsMut<BPlusTreePage>();
+          child_page->SetFatherPageId(second_internal_id);
+        }
+      }
+
+      // 建立/更新父内页结构
       if (parent_internal_page_id == INVALID_PAGE_ID) {
         parent_internal_page_id = bpm_->NewPage();
         auto parent_internal_guard = bpm_->WritePage(parent_internal_page_id);
@@ -400,28 +418,40 @@ void BPLUSTREE_TYPE::PushUp(WritePageGuard& write_guard) {
           KeyType, page_id_t, KeyComparator>>();
         parent_internal_write->Init(GetInternalMaxSize());
         parent_internal_write->SetPageId(parent_internal_page_id);
-        //由于父节点的id已经出现 更新两个内页的parent_id
-        page_write->SetFatherPageId(parent_internal_page_id);
-        new_internal_write->SetFatherPageId(parent_internal_page_id);
-        //插入刚刚获得的分裂键
-        parent_internal_write->FirstInsert(page_write->GetMinKey(), split_key,
-                                           page_write->GetPageId(), new_internal_write->GetPageId());
-        //更新 根页id;
+        KeyType left_min_key{};
+        KeyType right_min_key{};
+        {
+          auto first_internal_guard = bpm_->WritePage(first_internal_id);
+          auto first_internal_write = first_internal_guard.template AsMut<BPlusTreeInternalPage<
+            KeyType, page_id_t, KeyComparator>>();
+          first_internal_write->SetFatherPageId(parent_internal_page_id);
+          left_min_key = first_internal_write->GetMinKey();
+        }
+        {
+          auto second_internal_guard = bpm_->WritePage(second_internal_id);
+          auto second_internal_write2 = second_internal_guard.AsMut<BPlusTreeInternalPage<
+            KeyType, page_id_t, KeyComparator>>();
+          second_internal_write2->SetFatherPageId(parent_internal_page_id);
+          right_min_key = second_internal_write2->GetMinKey();
+        }
+        parent_internal_write->FirstInsert(left_min_key, right_min_key,
+                                           first_internal_id, second_internal_id);
         auto head_guard=bpm_->WritePage(header_page_id_);
         auto head_write=head_guard.AsMut<BPlusTreeHeaderPage>();
         head_write->root_page_id_ = parent_internal_write->GetPageId();
-      }else {
-        write_guard.Drop();
-        new_internal_guard.Drop();
-        //此为 已经是3层了 然后继续插入的逻辑 也就是
+      } else {
         auto parent_internal_guard = bpm_->WritePage(parent_internal_page_id);
         auto parent_internal_write = parent_internal_guard.AsMut<BPlusTreeInternalPage<
           KeyType, page_id_t, KeyComparator>>();
-        //插入刚刚获得的分裂键
-        parent_internal_write->InsertKeyValue(comparator_, split_key, new_internal_write->GetPageId());
-        //更新新内页的父亲页id //差点忘记 但是看着注释分析出来忘记设置了
-        new_internal_write->SetFatherPageId(parent_internal_write->GetPageId());
-        //3层模型 当第3层页也插满了
+        KeyType right_min_key{};
+        {
+          auto second_internal_guard = bpm_->WritePage(second_internal_id);
+          auto second_internal_write2 = second_internal_guard.AsMut<BPlusTreeInternalPage<
+            KeyType, page_id_t, KeyComparator>>();
+          second_internal_write2->SetFatherPageId(parent_internal_write->GetPageId());
+          right_min_key = second_internal_write2->GetMinKey();
+        }
+        parent_internal_write->InsertKeyValue(comparator_, right_min_key, second_internal_id);
         PushUp(parent_internal_guard);
       }
     }
