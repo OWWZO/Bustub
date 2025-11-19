@@ -58,7 +58,14 @@ void BPLUSTREE_TYPE::UpdateFather(KeyType first_key, KeyType second_key, WritePa
   auto father_guard=bpm_->WritePage(father_id);
   auto father_write=father_guard.template AsMut<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>>();
 
-  auto index=father_write->MatchKey(first_key,comparator_);
+  int index=father_write->MatchKey(first_key,comparator_);
+  if (index == -1) {
+    // 回退：通过子页ID定位对应条目
+    index = father_write->ValueIndexForPage_id_t(write->GetPageId());
+  }
+  if (index == -1) {
+    return;
+  }
   father_write->UpdateKey(index,second_key);
   if (index==0) {
     UpdateFather(first_key,second_key,father_guard);
@@ -235,6 +242,10 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
     auto header_guard_w=bpm_->WritePage(header_page_id_);
     auto header_page_write = header_guard_w.AsMut<BPlusTreeHeaderPage>();
     page_id_t page_id = bpm_->NewPage();
+    if (page_id == INVALID_PAGE_ID) {
+      // 缓冲池满或无可淘汰帧，无法创建新根
+      return false;
+    }
     //给全局配置里的根页设置id
     header_page_write->root_page_id_ = page_id;
     //获取根页的write_guard
@@ -256,6 +267,8 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
     //插入键值对
     bool is_repeat = root_page_write->InsertKeyValue(comparator_, key, value);
     if (!is_repeat) {
+      header_guard.Drop();
+      root_guard.Drop();
       return false;
     }
     header_guard.Drop();
@@ -283,6 +296,9 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
         //继续在此内页上查找
         temp_id = temp_write_internal_page->AccurateFind(comparator_, key);
         if (temp_id == INVALID_PAGE_ID) {
+          header_guard.Drop();
+          find_guard.Drop();
+          guard_while.Drop();
           return false;
         }
         //复用循环外的变量 实现while循环查找
@@ -298,22 +314,29 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
     //根据位置 插入到指定叶子页
     auto leaf_page_guard = bpm_->WritePage(page_id);
     auto leaf_page_write = leaf_page_guard.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
-    auto begin_key=leaf_page_write->GetMinKey();
-    leaf_page_write->InsertKeyValue(comparator_, key, value);
-    //进入前资源释放 带guard的都要进行释放
+    int pre_size = leaf_page_write->GetSize();
+    KeyType begin_key{};
+    if (pre_size > 0) {
+      begin_key = leaf_page_write->GetMinKey();
+    } else {
+      begin_key = leaf_page_write->GetBeforeFirstKey();
+    }
+    bool inserted = leaf_page_write->InsertKeyValue(comparator_, key, value);
+    if (!inserted) {
+      header_guard.Drop();
+      find_guard.Drop();
+      leaf_page_guard.Drop();
+      return false;
+    }
     header_guard.Drop();
-     find_guard.Drop();
-    //递归更新父页的信息
+    find_guard.Drop();
     if (leaf_page_write->IsBegin()) {
-      //会将leaf_page_guard给drop掉
-        UpdateFather(begin_key,leaf_page_write->GetMinKey(),leaf_page_guard);
-
-      //      leaf_page_write1->SetBegin(false); 要用到leaf_page_write 但是上面的guard已经drop 所以用不了了 要临时申请
+      UpdateFather(begin_key, leaf_page_write->GetMinKey(), leaf_page_guard);
       auto leaf_page_guard1 = bpm_->WritePage(page_id);
       auto leaf_page_write1 = leaf_page_guard1.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
       leaf_page_write1->SetBegin(false);
       PushUp(leaf_page_guard1);
-    }else {
+    } else {
       PushUp(leaf_page_guard);
     }
   }
@@ -331,6 +354,9 @@ void BPLUSTREE_TYPE::PushUp(WritePageGuard& write_guard) {
     // 分裂判断依据为物理大小（GetSize()），包括墓碑在内的所有键值对
     if (page_write->GetSize() >= page_write->GetMaxSize()) {
       auto new_page_id = bpm_->NewPage();
+      if (new_page_id == INVALID_PAGE_ID) {
+        return;
+      }
       auto new_page_guard = bpm_->WritePage(new_page_id);
       auto new_page_write = new_page_guard.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
       new_page_write->Init(GetLeafMaxSize());
@@ -346,6 +372,9 @@ void BPLUSTREE_TYPE::PushUp(WritePageGuard& write_guard) {
       if (page_write->GetFatherPageId()==INVALID_PAGE_ID) {
         //建立的一些基础操作
         auto internal_page_id = bpm_->NewPage();
+        if (internal_page_id == INVALID_PAGE_ID) {
+          return;
+        }
         auto internal_page_guard = bpm_->WritePage(internal_page_id);
         auto internal_page_write = internal_page_guard.AsMut<BPlusTreeInternalPage<
           KeyType, page_id_t, KeyComparator>>();
@@ -366,16 +395,26 @@ void BPLUSTREE_TYPE::PushUp(WritePageGuard& write_guard) {
         //设置internal页的键值对
         internal_page_write->FirstInsert(page_write_min_key,new_page_write->GetMinKey(), page_write_page_id,new_page_write->GetPageId());
       }else{
+        // 在释放 guard 之前先缓存新页的必要信息，避免使用悬空指针
+        KeyType right_min_key = new_page_write->GetMinKey();
+        page_id_t right_page_id = new_page_write->GetPageId();
+
         write_guard.Drop();
         new_page_guard.Drop();
-        //分裂后 将新的页的数据 加入到内页
+
+        // 分裂后将新页信息插入父页
         auto father_page_guard = bpm_->WritePage(page_write->GetFatherPageId());
         auto father_page_write = father_page_guard.template AsMut<BPlusTreeInternalPage<
           KeyType, page_id_t, KeyComparator>>();
-        father_page_write->InsertKeyValue(comparator_, new_page_write->GetMinKey(), new_page_write->GetPageId());
-        //设置新页的父亲id
-        new_page_write->SetFatherPageId(father_page_write->GetPageId());
-        //pushup 父页
+        father_page_write->InsertKeyValue(comparator_, right_min_key, right_page_id);
+
+        // 设置新页的父亲id
+        auto right_guard = bpm_->WritePage(right_page_id);
+        auto right_leaf = right_guard.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+        right_leaf->SetFatherPageId(father_page_write->GetPageId());
+        right_guard.Drop();
+
+        // pushup 父页
         PushUp(father_page_guard);
       }
     }
@@ -384,6 +423,9 @@ void BPLUSTREE_TYPE::PushUp(WritePageGuard& write_guard) {
             KeyType, page_id_t, KeyComparator>>();
     if (GetInternalMaxSize() == page_write->GetSize()) {
       auto new_internal_page_id = bpm_->NewPage();
+      if (new_internal_page_id == INVALID_PAGE_ID) {
+        return;
+      }
       auto new_internal_guard = bpm_->WritePage(new_internal_page_id);
       auto new_internal_write = new_internal_guard.AsMut<BPlusTreeInternalPage<
         KeyType, page_id_t, KeyComparator>>();
@@ -413,6 +455,9 @@ void BPLUSTREE_TYPE::PushUp(WritePageGuard& write_guard) {
       // 建立/更新父内页结构
       if (parent_internal_page_id == INVALID_PAGE_ID) {
         parent_internal_page_id = bpm_->NewPage();
+        if (parent_internal_page_id == INVALID_PAGE_ID) {
+          return;
+        }
         auto parent_internal_guard = bpm_->WritePage(parent_internal_page_id);
         auto parent_internal_write = parent_internal_guard.AsMut<BPlusTreeInternalPage<
           KeyType, page_id_t, KeyComparator>>();

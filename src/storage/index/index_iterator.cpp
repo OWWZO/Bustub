@@ -35,8 +35,8 @@ INDEXITERATOR_TYPE::IndexIterator(std::shared_ptr<TracedBufferPoolManager> bpm, 
   }
   bpm_=bpm;
   page_id_=page_id;
-  guard_=bpm_->WritePage(page_id);
-  page_=guard_.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+  guard_=bpm_->ReadPage(page_id);
+  page_=guard_.As<B_PLUS_TREE_LEAF_PAGE_TYPE>();
   index_=0;
   
   // 跳过初始位置的墓碑
@@ -53,8 +53,8 @@ INDEXITERATOR_TYPE::IndexIterator(std::shared_ptr<TracedBufferPoolManager> bpm, 
       return;
     }
     
-    guard_ = bpm_->WritePage(next_page_id);
-    page_ = guard_.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+    guard_ = bpm_->ReadPage(next_page_id);
+    page_ = guard_.As<B_PLUS_TREE_LEAF_PAGE_TYPE>();
     index_ = 0;
     page_id_ = next_page_id;
     
@@ -109,8 +109,8 @@ auto INDEXITERATOR_TYPE::operator++() -> INDEXITERATOR_TYPE & {
       return *this;
     }
 
-    guard_ = bpm_->WritePage(next_page_id);
-    page_ = guard_.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+    guard_ = bpm_->ReadPage(next_page_id);
+    page_ = guard_.As<B_PLUS_TREE_LEAF_PAGE_TYPE>();
     index_ = 0;
     page_id_ = next_page_id;
 

@@ -323,17 +323,18 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::DeletePair(int index) {
 INDEX_TEMPLATE_ARGUMENTS//只需要移动下一层的id 因为是链式结构
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Split(
     B_PLUS_TREE_INTERNAL_PAGE_TYPE *new_internal_page, std::vector<page_id_t> &v) -> KeyType {
-  int total_size = GetSize();
-  int split_index = total_size / 2;
-  for (int i = split_index; i < total_size; i++) {
-    new_internal_page->key_array_[new_internal_page->GetSize()] = key_array_[i];
-    new_internal_page->page_id_array_[new_internal_page->GetSize()] = page_id_array_[i];
-    v.push_back(page_id_array_[i]);
+
+  for (int mid=GetMinSize();mid<GetMaxSize();mid++) {
+    //由于已经是有序的 新内页所以直接顺序加入
+    new_internal_page->key_array_[new_internal_page->GetSize()]=key_array_[mid];
+    new_internal_page->page_id_array_[new_internal_page->GetSize()]=page_id_array_[mid];
+    //更新叶子页的father_id为新的内页id
+    v.push_back(page_id_array_[mid]);
     new_internal_page->ChangeSizeBy(1);
+    //同时更新size 不需要物理删除 直接通过size来逻辑删除
+    ChangeSizeBy(-1);
   }
-  int moved_count = total_size - split_index;
-  ChangeSizeBy(-moved_count);
-  return new_internal_page->key_array_[0];
+  return key_array_[GetMinSize()];
 }
 
 

@@ -58,9 +58,9 @@ class IndexIterator {
 
  private:
   // add your own private member variables here
-  B_PLUS_TREE_LEAF_PAGE_TYPE* page_;
+  const B_PLUS_TREE_LEAF_PAGE_TYPE* page_;
 
-  WritePageGuard guard_;
+  ReadPageGuard guard_;
 
   page_id_t page_id_;
 
