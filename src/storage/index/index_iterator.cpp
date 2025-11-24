@@ -35,15 +35,15 @@ INDEXITERATOR_TYPE::IndexIterator(std::shared_ptr<TracedBufferPoolManager> bpm, 
   }
   bpm_=bpm;
   page_id_=page_id;
-  guard_=bpm_->ReadPage(page_id);
-  page_=guard_.As<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+  guard_=bpm_->WritePage(page_id);
+  page_=guard_.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
   index_=0;
-  
+
   // 跳过初始位置的墓碑
   while (index_ < page_->GetSize() && page_->IsTombstone(index_)) {
     index_++;
   }
-  
+
   // 如果当前页的所有元素都是墓碑，需要继续查找下一个有效元素
   while (index_ >= page_->GetSize()) {
     page_id_t next_page_id = page_->GetNextPageId();
@@ -52,12 +52,12 @@ INDEXITERATOR_TYPE::IndexIterator(std::shared_ptr<TracedBufferPoolManager> bpm, 
       index_ = -1;
       return;
     }
-    
-    guard_ = bpm_->ReadPage(next_page_id);
-    page_ = guard_.As<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+
+    guard_ = bpm_->WritePage(next_page_id);
+    page_ = guard_.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
     index_ = 0;
     page_id_ = next_page_id;
-    
+
     // 跳过新页的墓碑
     while (index_ < page_->GetSize() && page_->IsTombstone(index_)) {
       index_++;
@@ -92,7 +92,7 @@ auto INDEXITERATOR_TYPE::operator++() -> INDEXITERATOR_TYPE & {
   if (page_id_ == INVALID_PAGE_ID || index_ == -1) {
     return *this;
   }
-  
+
   index_++;
   //跳过墓碑
   while (index_ < page_->GetSize() && page_->IsTombstone(index_)) {
@@ -109,8 +109,8 @@ auto INDEXITERATOR_TYPE::operator++() -> INDEXITERATOR_TYPE & {
       return *this;
     }
 
-    guard_ = bpm_->ReadPage(next_page_id);
-    page_ = guard_.As<B_PLUS_TREE_LEAF_PAGE_TYPE>();
+    guard_ = bpm_->WritePage(next_page_id);
+    page_ = guard_.AsMut<B_PLUS_TREE_LEAF_PAGE_TYPE>();
     index_ = 0;
     page_id_ = next_page_id;
 

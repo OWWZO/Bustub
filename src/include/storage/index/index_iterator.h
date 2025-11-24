@@ -28,7 +28,7 @@ namespace bustub {
 
 FULL_INDEX_TEMPLATE_ARGUMENTS_DEFN
 class IndexIterator {
- public:
+public:
   // you may define your own constructor based on your member variables
   IndexIterator();
 
@@ -56,11 +56,11 @@ class IndexIterator {
     return true;
   }
 
- private:
+private:
   // add your own private member variables here
-  const B_PLUS_TREE_LEAF_PAGE_TYPE* page_;
+  B_PLUS_TREE_LEAF_PAGE_TYPE* page_;
 
-  ReadPageGuard guard_;
+  WritePageGuard guard_;
 
   page_id_t page_id_;
 

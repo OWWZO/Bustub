@@ -140,21 +140,24 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::FirstInsert(
 INDEX_TEMPLATE_ARGUMENTS
 bool B_PLUS_TREE_INTERNAL_PAGE_TYPE::InsertKeyValue(const KeyComparator &comparator,
                                                     const KeyType &key, const ValueType &value) {
-    auto index = BinarySearch(comparator, key);
-    if (index==-1) {
-      return false;
+  int index = BinarySearch(comparator, key);
+  // 处理重复键：BinarySearch返回的是upper_bound位置
+  // 若左侧元素与key相等，则更新已有条目的子页指针，避免插入重复键
+  if (index > 0 && comparator(key_array_[index - 1], key) == 0) {
+    page_id_array_[index - 1] = value;
+    return true;
+  }
+  if (index == GetSize()) {
+    key_array_[index] = key;
+    page_id_array_[index] = value;
+  } else {
+    for (int i = GetSize() - 1; i >= index; i--) {
+      key_array_[i + 1] = key_array_[i];
+      page_id_array_[i + 1] = page_id_array_[i];
     }
-    if (index == GetSize()) {
-      key_array_[index] = key;
-      page_id_array_[index] = value;
-    } else {
-      for (int i = GetSize() - 1; i >= index; i--) {
-        key_array_[i + 1] = key_array_[i];
-        page_id_array_[i + 1] = page_id_array_[i];
-      }
-      key_array_[index] = key;
-      page_id_array_[index] = value;
-    }
+    key_array_[index] = key;
+    page_id_array_[index] = value;
+  }
   ChangeSizeBy(1);
   return true;
 }
@@ -240,15 +243,10 @@ INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::GetPrePageId( const BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>* father_write) -> page_id_t {
   //返回这个页id的物理下标
   auto index= father_write->ValueIndexForPage_id_t(GetPageId());
-  if (index==0) {
+  if (index <= 0) {
     return INVALID_PAGE_ID;
   }
-  //直接定位到左页id
-  if (index!=0) {
-    return father_write->page_id_array_[index-1];
-  }else {
-    return INVALID_PAGE_ID;
-  }
+  return father_write->page_id_array_[index-1];
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -267,7 +265,7 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::GetNextPageId( const BPlusTreeInternalPage<
   //返回这个页id的物理下标
   auto index= father_write->ValueIndexForPage_id_t(GetPageId());
   //直接定位到右页id
-  if (index+1<father_write->GetSize()) {
+  if (index != -1 && index+1<father_write->GetSize()) {
     return father_write->page_id_array_[index+1];
   }else {
     return INVALID_PAGE_ID;
